@@ -56,6 +56,8 @@ pub enum SlashCommand {
     Warnings,
     // Overmind: list custom commands and skipped command files.
     Commands,
+    // Overmind: run gordon-workflows pipelines natively.
+    Pipeline,
     Cd,
     #[strum(to_string = "pwd", serialize = "cwd")]
     Pwd,
@@ -119,6 +121,7 @@ impl SlashCommand {
             SlashCommand::Daemon => "Manage the local background server",
             SlashCommand::Warnings => "view retained warnings and diagnostic details",
             SlashCommand::Commands => "list custom commands and any skipped command files",
+            SlashCommand::Pipeline => "run, resume and inspect pipelines (list, run, status, ...)",
             SlashCommand::Status => "show current session configuration and token usage",
             SlashCommand::Cd => "change the current working directory",
             SlashCommand::Pwd => "show the current working directory",
@@ -191,6 +194,7 @@ impl SlashCommand {
                 | SlashCommand::Side
                 | SlashCommand::Btw
                 | SlashCommand::Resume
+                | SlashCommand::Pipeline
         )
     }
 
@@ -283,6 +287,7 @@ impl SlashCommand {
             | SlashCommand::Daemon
             | SlashCommand::Warnings
             | SlashCommand::Commands
+            | SlashCommand::Pipeline
             | SlashCommand::Pwd
             | SlashCommand::Usage
             | SlashCommand::DebugConfig

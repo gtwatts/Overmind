@@ -81,6 +81,7 @@ impl ChatWidget {
         self.reset_safety_buffering_for_turn_start();
         self.turn_lifecycle.start(Instant::now());
         self.overmind_hud_turn_started();
+        self.overmind_pipeline_turn_started();
         self.transcript.reset_turn_flags();
         self.adaptive_chunking.reset();
         if self.plan_stream_controller.take().is_some() {
@@ -164,6 +165,7 @@ impl ChatWidget {
         }
         self.turn_runtime_metrics = RuntimeMetricsSummary::default();
         self.overmind_hud_turn_finished(from_replay);
+        self.overmind_pipeline_turn_finished(from_replay);
         if !from_replay {
             self.request_status_line_branch_refresh();
             self.request_status_line_git_summary_refresh();

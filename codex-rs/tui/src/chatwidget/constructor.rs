@@ -239,6 +239,7 @@ impl ChatWidget {
             forked_from: None,
             interrupted_turn_notice_mode: InterruptedTurnNoticeMode::Default,
             input_queue: InputQueueState::default(),
+            overmind_pipelines: Default::default(),
             safety_buffering_prompt: None,
             safety_buffering_source: UserMessageSource::Prompt,
             chat_keymap,
@@ -308,6 +309,7 @@ impl ChatWidget {
         widget.sync_service_tier_commands();
         widget.sync_custom_commands();
         widget.overmind_hud_init();
+        widget.overmind_pipelines_init();
         widget.sync_worktrees_enabled();
         widget.sync_plugins_command_enabled();
         widget.sync_goal_command_enabled();

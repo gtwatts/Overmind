@@ -545,6 +545,7 @@ impl ChatWidget {
             SlashCommand::Daemon => self.app_event_tx.send(AppEvent::OpenDaemonMenu),
             SlashCommand::Warnings => self.app_event_tx.send(AppEvent::OpenWarnings),
             SlashCommand::Commands => self.show_custom_commands(),
+            SlashCommand::Pipeline => self.overmind_pipeline_command(""),
             SlashCommand::Status => {
                 if self.should_prefetch_rate_limits() {
                     let request_id = self.next_status_refresh_request_id;
@@ -1107,6 +1108,7 @@ impl ChatWidget {
             SlashCommand::Pets if !trimmed.is_empty() => {
                 self.select_pet_by_id(args);
             }
+            SlashCommand::Pipeline => self.overmind_pipeline_command(&args),
             _ => self.dispatch_command_from_source(cmd, source),
         }
         if source == SlashCommandDispatchSource::Live && cmd != SlashCommand::Goal {
@@ -1306,6 +1308,8 @@ impl ChatWidget {
             | SlashCommand::Recap
             | SlashCommand::Commands
             | SlashCommand::TestApproval => QueueDrain::Continue,
+            // Starting a stage submits a turn; let it run before draining more input.
+            SlashCommand::Pipeline => QueueDrain::Stop,
             SlashCommand::Cd => match self.thread_id {
                 Some(thread_id) if self.can_change_working_directory(thread_id) => QueueDrain::Stop,
                 _ => QueueDrain::Continue,

@@ -35,7 +35,7 @@ impl ChatWidget {
         self.add_plain_history_lines(lines);
     }
 
-    fn custom_command_env(&self) -> CustomCommandEnv {
+    pub(super) fn custom_command_env(&self) -> CustomCommandEnv {
         let trust = if self.config.active_project.is_trusted() {
             ProjectTrust::Trusted
         } else {
@@ -49,7 +49,7 @@ impl ChatWidget {
     }
 
     /// Enabled skills from the loaded skills list, or `None` before it has loaded.
-    fn available_skills_for_commands(&self) -> Option<Vec<AvailableSkill>> {
+    pub(super) fn available_skills_for_commands(&self) -> Option<Vec<AvailableSkill>> {
         self.bottom_pane.skills().map(|skills| {
             skills
                 .iter()
