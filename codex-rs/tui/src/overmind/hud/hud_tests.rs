@@ -266,6 +266,12 @@ fn hud_hidden_when_disabled_or_empty() {
     assert_eq!(state.line(80, /*task_running*/ false, now), None);
     assert_eq!(state.row(false, now).desired_height(80), 0);
 
+    state.begin_turn(now, TokenUsage::default());
+    assert!(
+        !state.record(HudEvent::Thinking),
+        "a disabled HUD never asks for redraws"
+    );
+
     let empty = HudState::new(HudConfig::default(), Glyphs::Unicode, Palette::MONO);
     assert_eq!(empty.line(80, /*task_running*/ false, now), None);
 

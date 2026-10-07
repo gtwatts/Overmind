@@ -156,10 +156,15 @@ impl HudState {
         self.turn = Some(TurnActivity::new(now, start_usage));
     }
 
-    pub(crate) fn record(&mut self, event: HudEvent<'_>) {
-        if let Some(turn) = self.turn.as_mut() {
-            turn.apply(event);
-        }
+    /// Record a turn event; returns whether the HUD row needs a redraw.
+    pub(crate) fn record(&mut self, event: HudEvent<'_>) -> bool {
+        let changed = self.turn.as_mut().is_some_and(|turn| turn.apply(event));
+        changed && self.row_enabled()
+    }
+
+    /// Whether the HUD row is configured to show anything.
+    pub(crate) fn row_enabled(&self) -> bool {
+        self.config.row_enabled()
     }
 
     /// End the turn and build its summary, if summaries are enabled and anything happened.

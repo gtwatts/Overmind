@@ -176,7 +176,11 @@ fn turn_activity_tracks_phase_and_counts() {
     let t0 = std::time::Instant::now();
     let mut turn = TurnActivity::new(t0, Default::default());
     assert_eq!(turn.phase, Phase::Starting);
-    turn.apply(HudEvent::Thinking);
+    assert!(turn.apply(HudEvent::Thinking));
+    assert!(
+        !turn.apply(HudEvent::Thinking),
+        "repeated deltas change nothing"
+    );
     assert_eq!(turn.phase, Phase::Thinking);
     turn.apply(HudEvent::CommandStarted("bash -lc \"just fmt\""));
     assert_eq!(turn.phase, Phase::Running("just fmt".to_string()));

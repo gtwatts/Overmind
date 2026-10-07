@@ -36,7 +36,16 @@ impl ChatWidget {
     }
 
     pub(super) fn overmind_hud_event(&mut self, event: HudEvent<'_>) {
-        self.bottom_pane.overmind_hud_mut().record(event);
+        if self.bottom_pane.overmind_hud_mut().record(event) {
+            self.bottom_pane.request_redraw();
+        }
+    }
+
+    /// Redraw after a HUD state change, but only when the HUD is visible at all.
+    fn overmind_hud_changed(&self) {
+        if self.bottom_pane.overmind_hud().row_enabled() {
+            self.bottom_pane.request_redraw();
+        }
     }
 
     pub(super) fn overmind_hud_turn_started(&mut self) {
@@ -48,6 +57,7 @@ impl ChatWidget {
         self.bottom_pane
             .overmind_hud_mut()
             .begin_turn(Instant::now(), start);
+        self.overmind_hud_changed();
     }
 
     pub(super) fn overmind_hud_turn_finished(&mut self, from_replay: bool) {
@@ -70,6 +80,7 @@ impl ChatWidget {
 
     pub(super) fn overmind_hud_plan(&mut self, update: &UpdatePlanArgs) {
         self.bottom_pane.overmind_hud_mut().set_plan(update);
+        self.overmind_hud_changed();
     }
 
     pub(super) fn overmind_hud_sync_context(&mut self) {
@@ -85,6 +96,7 @@ impl ChatWidget {
                 window: self.status_line_context_window_size(),
             });
         self.bottom_pane.overmind_hud_mut().set_context(context);
+        self.overmind_hud_changed();
     }
 
     pub(super) fn overmind_hud_sync_limits(&mut self) {
@@ -107,6 +119,7 @@ impl ChatWidget {
             })
             .unwrap_or_default();
         self.bottom_pane.overmind_hud_mut().set_limits(limits);
+        self.overmind_hud_changed();
     }
 
     pub(super) fn overmind_hud_sync_badge(&mut self) {
@@ -116,5 +129,6 @@ impl ChatWidget {
             model: self.current_model().to_string(),
         });
         self.bottom_pane.overmind_hud_mut().set_badge(badge);
+        self.overmind_hud_changed();
     }
 }

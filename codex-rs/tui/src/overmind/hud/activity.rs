@@ -137,7 +137,9 @@ impl TurnActivity {
         now.saturating_duration_since(self.started_at)
     }
 
-    pub(crate) fn apply(&mut self, event: HudEvent<'_>) {
+    /// Apply an event; returns whether anything visible changed.
+    pub(crate) fn apply(&mut self, event: HudEvent<'_>) -> bool {
+        let before = (self.phase.clone(), self.counts);
         match event {
             HudEvent::Thinking => self.set_phase(Phase::Thinking),
             HudEvent::Responding => self.set_phase(Phase::Responding),
@@ -168,6 +170,7 @@ impl TurnActivity {
             HudEvent::ToolFinished => self.set_phase(Phase::Thinking),
             HudEvent::ApprovalRequested => self.set_phase(Phase::AwaitingApproval),
         }
+        before != (self.phase.clone(), self.counts)
     }
 
     fn set_phase(&mut self, phase: Phase) {

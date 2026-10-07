@@ -653,8 +653,11 @@ impl BottomPane {
         self.composer.custom_command_discovery()
     }
 
+    pub(crate) fn overmind_hud(&self) -> &crate::overmind::hud::HudState {
+        &self.overmind_hud
+    }
+
     pub(crate) fn overmind_hud_mut(&mut self) -> &mut crate::overmind::hud::HudState {
-        self.request_redraw();
         &mut self.overmind_hud
     }
 
