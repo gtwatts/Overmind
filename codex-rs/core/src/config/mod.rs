@@ -3836,15 +3836,18 @@ impl Config {
             .clone()
             .filter(|value| !value.is_empty());
 
-        let model_providers =
+        // Overmind: the built-in `cursor` provider (codex-rs/overmind-cursor).
+        let model_providers = codex_overmind_cursor::with_cursor_provider(
             merge_configured_model_providers(built_in_model_providers(openai_base_url), cfg.model_providers)
-                .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?;
+                .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidData, message))?,
+        );
 
         let model_provider_id = config_layer_stack.required_model_provider().map(str::to_string)
             .or(model_provider)
             .or(cfg.model_provider)
+            .or_else(|| codex_overmind_cursor::provider_for_model(model.as_deref().or(cfg.model.as_deref())))
             .unwrap_or_else(|| "openai".to_string());
-        let model_provider = model_providers
+        let mut model_provider = model_providers
             .get(&model_provider_id)
             .ok_or_else(|| {
                 let message = if model_provider_id == LEGACY_OLLAMA_CHAT_PROVIDER_ID {
@@ -3855,6 +3858,10 @@ impl Config {
                 std::io::Error::new(std::io::ErrorKind::NotFound, message)
             })?
             .clone();
+        let cursor_provider_active = model_provider_id == codex_overmind_cursor::CURSOR_PROVIDER_ID;
+        if cursor_provider_active {
+            codex_overmind_cursor::activate(&mut model_provider, &codex_home).await?;
+        }
 
         let shell_environment_policy = ShellEnvironmentPolicy::from(cfg.shell_environment_policy);
         let allow_login_shell = cfg.allow_login_shell.unwrap_or(true);
@@ -4110,7 +4117,10 @@ impl Config {
         let review_model = override_review_model.or(cfg.review_model);
 
         let check_for_update_on_startup = cfg.check_for_update_on_startup.unwrap_or(true);
-        let model_catalog = load_model_catalog(cfg.model_catalog_json.clone())?;
+        let model_catalog = match load_model_catalog(cfg.model_catalog_json.clone())? {
+            None if cursor_provider_active => Some(codex_overmind_cursor::model_catalog()?),
+            catalog => catalog,
+        };
 
         let log_dir = cfg
             .log_dir
