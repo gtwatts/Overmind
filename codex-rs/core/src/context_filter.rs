@@ -16,6 +16,7 @@
 //! stdout: `{"keep_skills":["name",...] | null, "elide_tool_outputs":["id",...]}`.
 //! A missing or `null` `keep_skills` keeps every skill.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::process::Stdio;
@@ -26,6 +27,7 @@ use codex_config::ContextFilterConfig;
 use codex_protocol::items::TurnItem;
 use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputBody;
+use codex_protocol::models::FunctionCallOutputContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::SKILLS_INSTRUCTIONS_OPEN_TAG;
@@ -240,7 +242,7 @@ fn build_request(
                 approx_tokens,
                 current_turn: last_user_index.is_some_and(|user| index > user),
                 success: output.success,
-                preview: preview(text),
+                preview: preview(&text),
             });
         }
     }
@@ -524,11 +526,19 @@ fn tool_calls_by_id(items: &[ResponseItem]) -> HashMap<&str, (&str, &str)> {
         .collect()
 }
 
-/// Text of a tool output. Outputs that carry images are never offered.
-fn output_text(output: &FunctionCallOutputPayload) -> Option<&str> {
+/// Text of a tool output. Content-item outputs (e.g. code mode) count when every item is
+/// text; outputs that carry images, audio or encrypted content are never offered.
+fn output_text(output: &FunctionCallOutputPayload) -> Option<Cow<'_, str>> {
     match &output.body {
-        FunctionCallOutputBody::Text(text) => Some(text.as_str()),
-        FunctionCallOutputBody::ContentItems(_) => None,
+        FunctionCallOutputBody::Text(text) => Some(Cow::Borrowed(text.as_str())),
+        FunctionCallOutputBody::ContentItems(items) => items
+            .iter()
+            .map(|item| match item {
+                FunctionCallOutputContentItem::InputText { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(|texts| Cow::Owned(texts.concat())),
     }
 }
 

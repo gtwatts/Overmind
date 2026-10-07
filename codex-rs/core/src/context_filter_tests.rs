@@ -201,6 +201,69 @@ fn applies_skill_and_tool_output_decisions() {
 }
 
 #[test]
+fn content_item_outputs_are_offered_and_elided_but_images_are_not() {
+    let text_items = |text: &str| FunctionCallOutputPayload {
+        body: FunctionCallOutputBody::ContentItems(vec![
+            FunctionCallOutputContentItem::InputText {
+                text: "Script completed\n".to_string(),
+            },
+            FunctionCallOutputContentItem::InputText {
+                text: text.to_string(),
+            },
+        ]),
+        success: None,
+    };
+    let custom_output =
+        |call_id: &str, output: FunctionCallOutputPayload| ResponseItem::CustomToolCallOutput {
+            id: None,
+            call_id: call_id.to_string(),
+            name: None,
+            output,
+            internal_chat_message_metadata_passthrough: None,
+        };
+    let mut with_image = text_items(&"i".repeat(BIG));
+    if let FunctionCallOutputBody::ContentItems(items) = &mut with_image.body {
+        items.push(FunctionCallOutputContentItem::InputImage {
+            image: codex_protocol::models::ImageReference::Inline {
+                image_url: "data:image/png;base64,AAAA".to_string(),
+            },
+            detail: None,
+        });
+    }
+    let mut prompt = vec![
+        message("user", "look at the logs"),
+        custom_output("code-1", text_items(&"x".repeat(BIG))),
+        custom_output("code-2", with_image),
+        custom_output("code-3", text_items(&"y".repeat(BIG))),
+    ];
+    let (request, plan) = build_request(&config(&["unused"]), &prompt, &meta());
+    let ids: Vec<&str> = request
+        .tool_outputs
+        .iter()
+        .map(|output| output.id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["code-1"]);
+    assert_eq!(
+        request.tool_outputs[0].bytes,
+        BIG + "Script completed\n".len()
+    );
+
+    let response = ContextFilterResponse {
+        keep_skills: None,
+        elide_tool_outputs: vec!["code-1".to_string(), "code-2".to_string()],
+    };
+    let outcome = apply_response(&mut prompt, &plan, &response);
+    assert_eq!(outcome.tool_outputs_elided, 1);
+    let ResponseItem::CustomToolCallOutput { output, .. } = &prompt[1] else {
+        panic!("expected custom tool output");
+    };
+    assert_eq!(
+        output.body,
+        FunctionCallOutputBody::Text("[elided by context filter: 755 tokens]".to_string())
+    );
+}
+
+#[test]
 fn null_keep_skills_keeps_catalog() {
     let original = items();
     let mut prompt = original.clone();
