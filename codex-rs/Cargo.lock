@@ -2978,6 +2978,7 @@ dependencies = [
  "codex-models-manager",
  "codex-network-proxy",
  "codex-otel",
+ "codex-overmind-cursor",
  "codex-plugin",
  "codex-prompts",
  "codex-protocol",
@@ -4253,6 +4254,20 @@ dependencies = [
  "anyhow",
  "axum",
  "futures",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "codex-overmind-cursor"
+version = "0.0.0"
+dependencies = [
+ "codex-model-provider-info",
+ "codex-models-manager",
+ "codex-protocol",
+ "pretty_assertions",
+ "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]
