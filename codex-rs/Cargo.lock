@@ -4870,6 +4870,7 @@ dependencies = [
  "codex-models-manager",
  "codex-otel",
  "codex-overmind-cursor",
+ "codex-overmind-pipelines",
  "codex-plugin",
  "codex-protocol",
  "codex-realtime-webrtc",

@@ -1,0 +1,11 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 278
+expression: fx.text(&effects)
+---
+◆ mini-whiteboard  run <run-1>
+  ━━━━━━━━━━━━━━━━━━━━ 4/4 · complete
+  ✓ brief-and-mode           production/brief.md
+  ✓ script                   production/script.md
+  ✓ approve-paid-generation  production/approval.md
+  ✓ render                   production/render.mp4

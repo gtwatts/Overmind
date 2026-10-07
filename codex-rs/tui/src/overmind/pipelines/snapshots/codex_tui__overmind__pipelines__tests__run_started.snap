@@ -1,0 +1,12 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 225
+expression: fx.text(&effects)
+---
+◆ mini-whiteboard  new run <run-1>
+  brief: explain cost segregation
+  mode: stroke-reveal
+  state: <workspace>/.overmind/runs/<run-1>
+● mini-whiteboard 1/4  brief-and-mode
+submit: [Overmind pipeline] mini-whiteboard · stage 1/4 · brief-and-mode (instruction)
+hud: mini-whiteboard 0/4 current=Some("brief-and-mode")

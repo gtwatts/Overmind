@@ -1,0 +1,6 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 346
+expression: fx.text(&effects)
+---
+error: mini-whiteboard: mode: must be one of stroke-reveal, organic-drawon; missing required input `brief`. Inputs: brief [mode=stroke-reveal|organic-drawon] (free text fills the first required text input)

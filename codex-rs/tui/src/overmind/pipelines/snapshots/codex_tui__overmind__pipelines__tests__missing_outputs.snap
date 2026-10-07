@@ -1,0 +1,9 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 265
+expression: fx.text(&effects)
+---
+✗ approve-paid-generation missing outputs
+  production/approval.md
+mini-whiteboard paused: outputs missing · /pipeline run retries · /pipeline rerun <stage> resets a stage
+hud: mini-whiteboard 2/4 current=Some("approve-paid-generation")

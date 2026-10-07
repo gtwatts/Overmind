@@ -1,0 +1,9 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 327
+expression: fx.text(&effects)
+---
+Reset <run-1> for a rerun: script, approve-paid-generation, render.
+● mini-whiteboard 2/4  script  attempt 2
+submit: [Overmind pipeline] mini-whiteboard · stage 2/4 · script (instruction) +skill gordon-skills:ai-filmmaking
+hud: mini-whiteboard 1/4 current=Some("script")

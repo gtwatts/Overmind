@@ -1,0 +1,12 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 376
+expression: fx.text(&effects)
+---
+◆ mini-whiteboard  run <run-1>
+  ──────────────────── 0/4 · in progress
+  ● brief-and-mode           running · attempt 1
+  ○ script
+  ○ approve-paid-generation  needs approval
+  ○ render
+hud: mini-whiteboard 0/4 current=Some("brief-and-mode")

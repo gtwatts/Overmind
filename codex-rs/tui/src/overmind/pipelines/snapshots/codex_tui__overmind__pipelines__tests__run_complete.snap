@@ -1,0 +1,9 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 275
+expression: fx.text(&effects)
+---
+✓ render done · 1 output recorded
+✓ mini-whiteboard complete  4/4 stages · run <run-1>
+  deliverables: production/render.mp4
+hud: cleared

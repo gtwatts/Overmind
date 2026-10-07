@@ -1,0 +1,10 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 433
+expression: "hud_renders(&running, &[120, 80, 50, 30, 14])"
+---
+120 | ● high-end-whiteboard ✓✓✓●○○○○○○○○○○○○ 3/16 ▸ shotlist
+ 80 | ● high-end-whiteboard ✓✓✓●○○○○○○○○○○○○ 3/16 ▸ shotlist
+ 50 | ● high-end-whiteboa… ━───── 3/16 ▸ shotlist
+ 30 | ● 3/16
+ 14 | ● 3/16

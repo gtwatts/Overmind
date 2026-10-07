@@ -1,0 +1,10 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 369
+expression: fx.text(&effects)
+---
+◆ /pipeline  1 pipeline
+  mini-whiteboard  active  4 stages  Produce a short whiteboard video.  user
+  Recent runs in this directory
+    <run-1>  0/4  in progress
+  /pipeline run <name> [inputs] · /pipeline inspect <name> · /pipeline help

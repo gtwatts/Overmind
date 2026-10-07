@@ -1,0 +1,7 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 441
+expression: "hud_renders(&waiting, &[120, 60])"
+---
+120 | ◇ high-end-whiteboard ✓✓✓✓✓✓◇○○○○○○○○○ 6/16 awaiting approve-paid-generation
+ 60 | ◇ high-end-wh… 6/16 awaiting approve-pai…

@@ -1,0 +1,7 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 253
+expression: fx.text(&effects)
+---
+mini-whiteboard paused: approve-paid-generation interrupted · /pipeline run retries · /pipeline rerun <stage> resets a stage
+hud: mini-whiteboard 2/4 current=Some("approve-paid-generation")

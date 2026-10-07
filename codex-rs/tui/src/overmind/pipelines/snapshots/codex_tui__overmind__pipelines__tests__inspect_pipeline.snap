@@ -1,0 +1,18 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 374
+expression: fx.text(&effects)
+---
+◆ mini-whiteboard  active · v1.0.0 · 4 stages
+  Produce a short whiteboard video.
+  <pipelines>/mini-whiteboard (PIPELINE.md)
+  Inputs
+    brief  string, required  Topic and audience.
+    mode   enum = stroke-reveal (stroke-reveal | organic-drawon)
+  Stages
+     1 brief-and-mode           instruction · producer ▸ production/brief.md
+     2 script                   instruction · director · $ai-filmmaking ▸ production/script.md
+     3 approve-paid-generation  human-review · approval ▸ production/approval.md
+     4 render                   instruction ▸ production/render.mp4
+  Ask before: publish, spend
+  /pipeline run mini-whiteboard <inputs> · Inputs: brief [mode=stroke-reveal|organic-drawon] (free text fills the first required text input)

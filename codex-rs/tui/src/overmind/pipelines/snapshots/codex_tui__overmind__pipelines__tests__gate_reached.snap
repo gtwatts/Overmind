@@ -1,0 +1,11 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 243
+expression: fx.text(&effects)
+---
+✓ script done · 1 output recorded
+◇ approve-paid-generation needs your approval
+  Approve the paid image plan.
+  review: production/script.md
+  /pipeline approve runs it · /pipeline rerun <stage> redoes earlier work
+hud: mini-whiteboard 2/4 current=Some("approve-paid-generation")

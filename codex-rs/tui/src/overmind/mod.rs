@@ -8,6 +8,7 @@ pub(crate) mod custom_commands;
 pub(crate) mod expansion;
 pub(crate) mod hud;
 pub(crate) mod listing;
+pub(crate) mod pipelines;
 pub(crate) mod skill_refs;
 
 /// Whether this provider lives only in Overmind's core and so must be served by the embedded

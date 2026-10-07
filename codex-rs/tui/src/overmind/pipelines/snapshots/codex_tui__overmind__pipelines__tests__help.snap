@@ -1,0 +1,14 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 378
+expression: fx.text(&effects)
+---
+◆ /pipeline  native pipelines, one agent turn per stage
+  list                  installed pipelines and recent runs here
+  run <name> [inputs]   start a run (free text fills the main input; key=value sets others)
+  run                   resume the current or latest unfinished run
+  approve               approve the stage the run is waiting on, then continue
+  status [run]          stage track of a run
+  inspect <name|run>    a pipeline's inputs and stages, or a run's evidence
+  rerun [stage|run]     reset a stage and its dependents, or repeat a run
+  stop                  pause after the current stage

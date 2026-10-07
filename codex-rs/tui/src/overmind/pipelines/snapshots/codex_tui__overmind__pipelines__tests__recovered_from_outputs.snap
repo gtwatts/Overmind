@@ -1,0 +1,9 @@
+---
+source: tui/src/overmind/pipelines/pipelines_tests.rs
+assertion_line: 270
+expression: fx.text(&effects)
+---
+✓ approve-paid-generation done · 1 output recorded
+● mini-whiteboard 4/4  render
+submit: [Overmind pipeline] mini-whiteboard · stage 4/4 · render (instruction)
+hud: mini-whiteboard 3/4 current=Some("render")
