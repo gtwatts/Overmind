@@ -122,23 +122,84 @@ Planned shape:
 
 ### 3. Richer TUI (M3)
 
-Visual feedback where Codex shows little today:
+Visual feedback where Codex shows little today. The first set (branch `overmind/m3-tui`) is the
+**HUD**: one row above the composer plus a per-turn summary line in the transcript. Code lives in
+`codex-rs/tui/src/overmind/hud/`; ChatWidget events reach it through one-line hooks in
+`chatwidget/overmind_hud.rs`.
 
-- pipeline panel: stage list with status glyphs, a progress bar for the run, elapsed time per
-  stage, and the current artifact;
-- status indicators for long tool calls (render/encode jobs, MCP calls) with determinate progress
-  when the tool reports it;
-- token/context gauge and turn timeline in the status line;
-- snapshot-tested ratatui widgets in `codex-rs/tui/src/overmind/` (styling per
-  `codex-rs/tui/styles.md`).
+HUD row, as width allows (segments step down to compact forms, then drop lowest priority first):
+
+- **live turn activity** (only while a turn runs): elapsed time and the current phase (thinking,
+  responding, running `<command>`, editing N files, calling `server.tool`, searching the web,
+  generating an image, *awaiting approval* highlighted), plus tool counts by kind
+  (`7 tools (4 sh, 2 edit, 1 mcp)`);
+- **plan progress** from `update_plan`: `plan ━━━━━─── 3/5 ▸ <current step>`;
+- **context gauge**: `ctx ━━━━━━──── 58% 148K/256K`, calm below 60%, warning from 60%, critical
+  from 85%;
+- **usage-limit bars** (5h / weekly) when the OpenAI account reports them (hidden for other
+  providers);
+- **provider badge** for non-OpenAI providers, e.g. `◆ Cursor grok-4.7`.
+
+Turn summary (after each turn, below "Worked for ..."): tokens in (cached) → out (reasoning),
+tool counts, plan, context, and a cost estimate when a price is configured.
+
+Generic widgets for M2 (`overmind/hud/meter.rs`, `segments.rs`): half-cell progress bars with an
+ASCII fallback, `progress(label, done, total)`, a stage track (`✓ plan  ● build  ○ test`) with
+`StageStatus` glyphs, and the width-aware segment line composer.
+
+Degradation: `TERM=dumb` (or `ascii = true`) switches to ASCII bars and glyphs; `NO_COLOR` (or no
+color support) drops colors but keeps bold on warnings; narrow terminals keep the most important
+segment. The HUD is off in upstream unit tests so upstream snapshots do not change.
+
+Configuration lives in `$CODEX_HOME/overmind.toml`, not `config.toml`: stock Codex shares
+`config.toml` and rejects unknown tables, so an `[overmind]` table there would break it. The
+file's `[tui]` table is Overmind's `[overmind.tui]`:
+
+```toml
+[tui]
+hud = true            # master switch for the HUD row
+context_gauge = true
+activity = true
+plan_progress = true
+rate_limits = true
+model_badge = true
+turn_summary = true
+ascii = false         # force ASCII bars
+
+# optional cost estimates, USD per million tokens, keyed by model slug
+[tui.prices."composer-2.5"]
+input = 0.5
+cached_input = 0.05
+output = 2.5
+```
+
+Unknown keys under `[tui]` produce a transcript warning and fall back to defaults.
+
+Still planned for M3: the pipeline panel (stage list, run progress bar, per-stage elapsed time and
+current artifact, built on the stage widgets above) and determinate progress for long tool calls
+when the tool reports it.
+
+### Shipped extra: built-in Cursor provider
+
+`codex-rs/overmind-cursor` adds a `cursor` model provider: `overmind -m grok-4.7` (or
+`grok-4.6`, `composer-2.5`; Gemini, Kimi, GLM and Muse once Cursor's usage pool allows) talks to
+Cursor models through a bundled loopback Node helper while Codex keeps running its own tools.
+The key comes from `CURSOR_API_KEY` or `$CODEX_HOME/secrets/cursor.env`.
+
+The shared background app-server daemon is the stock Codex binary and has no Cursor provider, so
+when the selected provider is `cursor` the TUI uses the embedded app server instead
+(`startup_orchestration.rs` hook; it shows "Running without the shared background server: a
+Cursor model requires embedded mode." when daemon auto-start is on). The `/model` picker does not
+list Cursor models yet; select them with `-m` or `model = "..."`.
 
 ## Roadmap
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
-| M1 | User-defined slash commands, bundled `/video` `/whiteboard` `/photocraft` `/examples`, skill attachment, live reload, `/commands`, tests | in review on `overmind/m1-slash-commands` |
-| M2 | Native pipelines (port `pipeline.yaml` + `PIPELINE.md`), run state, inspect/re-run | planned |
-| M3 | TUI visuals: pipeline panel, progress bars, status indicators | planned |
+| M1 | User-defined slash commands, bundled `/video` `/whiteboard` `/photocraft` `/examples`, skill attachment, live reload, `/commands`, tests | done (on `overmind/next`) |
+| Extra | Built-in Cursor provider (`overmind-cursor`) | shipped (on `overmind/next`) |
+| M2 | Native pipelines (port `pipeline.yaml` + `PIPELINE.md`), run state, inspect/re-run | planned (next) |
+| M3 | TUI visuals: HUD (activity, plan, context, limits, badge), turn summary, shared widgets | first set in review on `overmind/m3-tui`; pipeline panel follows M2 |
 | M4 | Carry over Todd's setup | planned |
 
 ### M4: carry-over of Todd's current Codex setup
@@ -168,6 +229,8 @@ Branches:
 
 - `main` mirrors `upstream/main` exactly. Never commit on it.
 - `overmind/main` is Overmind's trunk (the default branch on GitHub).
+- `overmind/next` is the integration branch (M1 + the Cursor provider) that new work builds on
+  and that will eventually replace the stock Codex install.
 - `overmind/<milestone>-<topic>` feature branches are reviewed by Todd, then merged into
   `overmind/main`.
 - `clef-context-filter` is an archived experiment; do not build on it.
@@ -212,6 +275,20 @@ Rules that keep conflicts small:
   two one-line rescan hooks (popup open, slash submission); the logic is in
   `chat_composer/overmind_commands.rs`
 
+### Upstream files touched by M3 (HUD) and the Cursor routing hook
+
+- `codex-rs/tui/src/overmind/mod.rs`: `mod hud;`, `requires_embedded_server`
+- `codex-rs/tui/src/chatwidget.rs`: `mod overmind_hud;`, context sync after token updates
+- `codex-rs/tui/src/chatwidget/constructor.rs`: `overmind_hud_init()`
+- `codex-rs/tui/src/chatwidget/turn_runtime.rs`: turn start/finish and plan hooks
+- `codex-rs/tui/src/chatwidget/{streaming,command_lifecycle,tool_lifecycle,tool_requests,dynamic_activity}.rs`:
+  one-line activity events
+- `codex-rs/tui/src/chatwidget/rate_limits.rs`, `status_surfaces.rs`: limit and badge sync
+- `codex-rs/tui/src/bottom_pane/mod.rs`: the `overmind_hud` field, an accessor, one row pushed
+  above the composer, and the test module registration
+- `codex-rs/tui/src/startup_orchestration.rs`: embedded app server for the Cursor provider
+- `codex-rs/tui/Cargo.toml` (+ `Cargo.lock`): `codex-overmind-cursor`
+
 ## Building and trying Overmind side by side
 
 Overmind builds the same `codex` binary as upstream. Do not install it over the stock Codex; run
@@ -222,4 +299,9 @@ cd ~/Documents/projects/Overmind/codex-rs
 cargo build -p codex-cli --bin codex
 alias overmind="$HOME/Documents/projects/Overmind/codex-rs/target/debug/codex"
 overmind            # then type / to see /video, /whiteboard, /photocraft, /examples; /commands lists them
+overmind -m grok-4.7   # Cursor model; the HUD shows "◆ Cursor grok-4.7"
 ```
+
+The HUD row appears above the composer once there is something to show (a running turn, a plan,
+context usage after the first turn, or a non-OpenAI provider). Try `TERM=dumb overmind` or
+`NO_COLOR=1 overmind` to see the fallbacks.
