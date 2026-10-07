@@ -1,0 +1,11 @@
+---
+source: tui/src/overmind/hud/hud_tests.rs
+assertion_line: 120
+expression: "render_widths(&state, true, t0 + Duration::from_secs(72))"
+---
+140 | ● 1m 12s  running cargo nextest run -p codex-tui --no-fai… · 7 tools · plan ━━━━━─── 3/5 · ctx ━━━━━━──── 58% 148K/256K  5h 38% · ◆ Cursor |
+100 | ● 1m 12s  running cargo nextest run -p co… · 7 tools · plan 3/5 · ctx ━━━── 58%  5h 38% · ◆ Cursor |
+ 80 | ● 1m 12s  running · 7 tools · plan 3/5 · ctx ━━━━━━──── 58%  5h 38% · ◆ Cursor |
+ 60 | ● 1m 12s · 7 tools · plan 3/5 · ctx 58%  5h 38% · ◆ Cursor |
+ 40 | ● 1m 12s  running · plan 3/5 · ctx 58% |
+ 24 | ● 1m 12s sh · ctx 58%  |

@@ -1,0 +1,8 @@
+---
+source: tui/src/overmind/hud/hud_tests.rs
+assertion_line: 224
+expression: rendered
+---
+✓ plan  ✓ build  ● test  ○ review  – ship
+x plan  x build  > test  . review  - ship
+✓ fetch  ✗ render

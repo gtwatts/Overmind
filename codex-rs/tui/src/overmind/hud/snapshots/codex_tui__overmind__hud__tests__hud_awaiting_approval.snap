@@ -1,0 +1,11 @@
+---
+source: tui/src/overmind/hud/hud_tests.rs
+assertion_line: 159
+expression: "render_widths(&state, true, t0 + Duration::from_secs(9))"
+---
+140 | ● 9s  awaiting approval · ctx ━━━━━━──── 58% 148K/256K                                                        5h ━━╸─── 38%  wk ╸───── 12% |
+100 | ● 9s  awaiting approval · ctx ━━━━━━──── 58% 148K/256K                5h ━━╸─── 38%  wk ╸───── 12% |
+ 80 | ● 9s  awaiting approval · ctx ━━━━━━──── 58% 148K/256K          5h 38%  wk 12% |
+ 60 | ● 9s  awaiting approval · ctx ━━━━━━──── 58%        5h 38% |
+ 40 | ● 9s approve? · ctx ━━━── 58%   5h 38% |
+ 24 | ● 9s · ctx 58%  5h 38% |

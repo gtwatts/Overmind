@@ -1,0 +1,10 @@
+---
+source: tui/src/overmind/hud/hud_tests.rs
+assertion_line: 196
+expression: rendered
+---
+140 |  ◇ tokens 18.2K in (12K cached) → 2.13K out (640 reasoning) · 7 tools (4 sh, 2 edit, 1 mcp) · plan ━━╸─ 3/5 · ctx ━━━━━━──── 58% · ~$0.041 |
+100 |  ◇ 18.2K in (12K cached) → 2.13K out (640 reasoning) · 7 tools · plan 3/5 · ctx ━━━── 58% · ~$0.041|
+ 80 |  ◇ 18.2K in → 2.13K out · 7 tools · plan 3/5 · ctx ━━━━━━──── 58% · ~$0.041    |
+ 50 |  ◇ 18.2K in → 2.13K out · 7 tools · ~$0.041      |
+ 30 |  ◇ 18.2K in → 2.13K out      |
