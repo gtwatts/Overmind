@@ -624,6 +624,24 @@ impl BottomPane {
         self.request_redraw();
     }
 
+    /// Replace the Overmind custom slash commands. Returns whether anything changed.
+    pub(crate) fn set_custom_commands(
+        &mut self,
+        discovery: crate::overmind::custom_commands::CustomCommandDiscovery,
+    ) -> bool {
+        let changed = self.composer.set_custom_commands(discovery);
+        if changed {
+            self.request_redraw();
+        }
+        changed
+    }
+
+    pub(crate) fn custom_commands(
+        &self,
+    ) -> &[std::sync::Arc<crate::overmind::custom_commands::CustomCommand>] {
+        self.composer.custom_commands()
+    }
+
     pub fn set_goal_command_enabled(&mut self, enabled: bool) {
         self.composer.set_goal_command_enabled(enabled);
         self.request_redraw();

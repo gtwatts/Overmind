@@ -201,6 +201,7 @@ impl ChatWidget {
                 });
         }
         self.sync_service_tier_commands();
+        self.sync_custom_commands();
         self.sync_worktrees_enabled();
         self.sync_plugins_command_enabled();
         self.sync_goal_command_enabled();

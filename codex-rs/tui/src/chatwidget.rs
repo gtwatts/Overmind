@@ -287,6 +287,7 @@ mod input_flow;
 mod input_restore;
 mod input_submission;
 mod interrupts;
+mod overmind_commands;
 mod questions;
 mod startup_submission;
 use self::interrupts::InterruptManager;
