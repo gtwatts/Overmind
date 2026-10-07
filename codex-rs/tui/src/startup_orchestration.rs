@@ -510,6 +510,14 @@ pub(super) async fn run_main_inner(
         && !cli.agents_overview
         && !cli.no_daemon
         && !app_server_target.uses_remote_workspace();
+    // Overmind: the shared daemon is the stock Codex binary, which has no Cursor provider.
+    if daemon_exclusion.is_none()
+        && !matches!(app_server_target, AppServerTarget::Remote { .. })
+        && crate::overmind::requires_embedded_server(&config.model_provider_id)
+    {
+        daemon_exclusion = Some("a Cursor model");
+        app_server_target = AppServerTarget::Embedded;
+    }
     if auto_start_daemon
         && daemon_exclusion.is_none()
         && should_show_bedrock_setup_wizard(
