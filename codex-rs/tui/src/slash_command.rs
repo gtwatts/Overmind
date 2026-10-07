@@ -54,6 +54,8 @@ pub enum SlashCommand {
     Status,
     Daemon,
     Warnings,
+    // Overmind: list custom commands and skipped command files.
+    Commands,
     Cd,
     #[strum(to_string = "pwd", serialize = "cwd")]
     Pwd,
@@ -116,6 +118,7 @@ impl SlashCommand {
             SlashCommand::Hooks => "view and manage lifecycle hooks",
             SlashCommand::Daemon => "Manage the local background server",
             SlashCommand::Warnings => "view retained warnings and diagnostic details",
+            SlashCommand::Commands => "list custom commands and any skipped command files",
             SlashCommand::Status => "show current session configuration and token usage",
             SlashCommand::Cd => "change the current working directory",
             SlashCommand::Pwd => "show the current working directory",
@@ -204,6 +207,7 @@ impl SlashCommand {
                 | SlashCommand::Status
                 | SlashCommand::Daemon
                 | SlashCommand::Warnings
+                | SlashCommand::Commands
                 | SlashCommand::Pwd
                 | SlashCommand::Usage
                 | SlashCommand::Ide
@@ -229,6 +233,7 @@ impl SlashCommand {
                 | SlashCommand::Exit
                 | SlashCommand::Status
                 | SlashCommand::Warnings
+                | SlashCommand::Commands
                 | SlashCommand::DebugConfig
                 | SlashCommand::Pwd
                 | SlashCommand::Rollout
@@ -277,6 +282,7 @@ impl SlashCommand {
             | SlashCommand::Status
             | SlashCommand::Daemon
             | SlashCommand::Warnings
+            | SlashCommand::Commands
             | SlashCommand::Pwd
             | SlashCommand::Usage
             | SlashCommand::DebugConfig

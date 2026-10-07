@@ -5,3 +5,6 @@
 //! that call into it. See `OVERMIND.md` at the repository root for the roadmap.
 
 pub(crate) mod custom_commands;
+pub(crate) mod expansion;
+pub(crate) mod listing;
+pub(crate) mod skill_refs;

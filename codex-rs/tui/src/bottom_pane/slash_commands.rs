@@ -411,6 +411,7 @@ mod tests {
                 SlashCommand::Status,
                 SlashCommand::Daemon,
                 SlashCommand::Warnings,
+                SlashCommand::Commands,
                 SlashCommand::Pwd,
                 SlashCommand::Usage,
             ]

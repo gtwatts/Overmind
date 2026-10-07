@@ -212,101 +212,6 @@ fn untrusted_projects_do_not_contribute_commands() {
 }
 
 #[test]
-fn substitutes_argument_placeholders() {
-    let tmp = TempDir::new().expect("tempdir");
-    let env = test_env(tmp.path());
-
-    assert_eq!(
-        expand_custom_command(
-            &command(
-                "x",
-                "All: $ARGUMENTS | first: $1 | second: $2 | missing: $3 | cost: $$5 | $HOME"
-            ),
-            "  alpha beta  ",
-            &env,
-        ),
-        "All: alpha beta | first: alpha | second: beta | missing:  | cost: $5 | $HOME"
-    );
-}
-
-#[test]
-fn appends_request_when_body_has_no_placeholders() {
-    let tmp = TempDir::new().expect("tempdir");
-    let env = test_env(tmp.path());
-    let cmd = command("x", "Summarize the repo.");
-
-    assert_eq!(
-        expand_custom_command(&cmd, "focus on tests", &env),
-        "Summarize the repo.\n\n## Request\n\nfocus on tests"
-    );
-    assert_eq!(
-        expand_custom_command(&cmd, "   ", &env),
-        "Summarize the repo."
-    );
-}
-
-#[test]
-fn renders_declared_context() {
-    let tmp = TempDir::new().expect("tempdir");
-    let env = test_env(tmp.path());
-    let home = tmp.path().join("home");
-    let pipeline = tmp.path().join("codex-home/pipelines/whiteboard");
-    write(&home.join("notes/style.md"), "style");
-    write(&pipeline.join("pipeline.yaml"), "{}");
-    write(&pipeline.join("PIPELINE.md"), "# whiteboard");
-    let cmd = CustomCommand {
-        skills: vec!["photocraft".to_string(), "blender".to_string()],
-        files: vec!["~/notes/style.md".to_string(), "missing.md".to_string()],
-        pipelines: vec!["whiteboard".to_string(), "nope".to_string()],
-        ..command("video", "Brief: $ARGUMENTS")
-    };
-
-    let expected = format!(
-        "Brief: promo for a bakery\n\nContext for /video (loaded by Overmind):\n- Use these skills: $photocraft $blender\n- Read these files before starting:\n  - {}\n  - {} (not found; skip it)\n- Use these pipelines as guidance (pipeline.yaml holds the stages and dependencies, PIPELINE.md the guide):\n  - whiteboard: {}, {}\n  - nope (pipeline not found; skip it)",
-        home.join("notes/style.md").display(),
-        tmp.path().join("repo/missing.md").display(),
-        pipeline.join("pipeline.yaml").display(),
-        pipeline.join("PIPELINE.md").display(),
-    );
-    assert_eq!(
-        expand_custom_command(&cmd, "promo for a bakery", &env),
-        expected
-    );
-}
-
-#[test]
-fn bundled_video_command_expands_brief_and_context() {
-    let tmp = TempDir::new().expect("tempdir");
-    let env = test_env(tmp.path());
-    let discovery = discover_custom_commands(&env);
-    let video = discovery
-        .commands
-        .iter()
-        .find(|command| command.name == "video")
-        .expect("bundled video command");
-
-    assert_eq!(
-        video.argument_hint.as_deref(),
-        Some("<who it's for / kind of video / style>")
-    );
-    let expanded = expand_custom_command(video, "30 s social ad for a coffee brand", &env);
-    assert!(
-        expanded.contains("Brief: 30 s social ad for a coffee brand"),
-        "{expanded}"
-    );
-    assert!(
-        expanded.contains(
-            "- Use these skills: $photocraft $blender $remotion-video-production $ffmpeg-skill"
-        ),
-        "{expanded}"
-    );
-    assert!(
-        expanded.contains("  - blender-motion-graphics (pipeline not found; skip it)"),
-        "{expanded}"
-    );
-}
-
-#[test]
 fn bundled_commands_declare_their_skills_and_pipelines() {
     let tmp = TempDir::new().expect("tempdir");
     let discovery = discover_custom_commands(&test_env(tmp.path()));
@@ -365,4 +270,29 @@ fn bundled_commands_declare_their_skills_and_pipelines() {
             ),
         ]
     );
+}
+
+#[test]
+fn fingerprint_changes_only_when_command_files_change() {
+    let tmp = TempDir::new().expect("tempdir");
+    let env = test_env(tmp.path());
+    let empty = command_dirs_fingerprint(&env);
+    assert_eq!(command_dirs_fingerprint(&env), empty);
+
+    let file = env.user_commands_dir.join("standup.md");
+    write(&file, "Write my standup notes.");
+    write(&env.user_commands_dir.join("notes.txt"), "ignored");
+    let one_file = command_dirs_fingerprint(&env);
+    assert_ne!(one_file, empty);
+    assert_eq!(command_dirs_fingerprint(&env), one_file);
+
+    write(&file, "Write my standup notes, shorter please.");
+    assert_ne!(command_dirs_fingerprint(&env), one_file);
+
+    fs::remove_file(&file).expect("remove");
+    assert_eq!(
+        command_dirs_fingerprint(&env),
+        command_dirs_fingerprint(&test_env(tmp.path()))
+    );
+    assert_eq!(command_dirs_fingerprint(&env), empty);
 }

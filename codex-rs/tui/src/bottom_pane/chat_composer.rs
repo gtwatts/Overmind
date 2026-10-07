@@ -358,7 +358,6 @@ use crate::keymap::RuntimeKeymap;
 use crate::keymap::VimNormalKeymap;
 use crate::keymap::user_bindings;
 use crate::onboarding::mark_underlined_hyperlink;
-use crate::overmind::custom_commands::CustomCommand;
 use crate::overmind::custom_commands::CustomCommandDiscovery;
 use crate::render::Insets;
 use crate::render::RectExt;
@@ -379,6 +378,7 @@ mod footer_state;
 mod history_search;
 mod inline_input;
 mod mouse;
+mod overmind_commands;
 mod paste_input;
 mod popup_state;
 mod reconnect;
@@ -635,6 +635,7 @@ pub(crate) struct ChatComposer {
     service_tier_commands: Vec<ServiceTierCommand>,
     /// Overmind user-defined slash commands and their discovery warnings.
     custom_commands: CustomCommandDiscovery,
+    custom_commands_watch: Option<Box<overmind_commands::CustomCommandWatch>>,
     mentions_v2_enabled: bool,
     goal_command_enabled: bool,
     voice_command_enabled: bool,
@@ -809,6 +810,7 @@ impl ChatComposer {
             service_tier_commands_enabled: false,
             service_tier_commands: Vec::new(),
             custom_commands: CustomCommandDiscovery::default(),
+            custom_commands_watch: None,
             mentions_v2_enabled: false,
             goal_command_enabled: false,
             voice_command_enabled: false,
@@ -1012,20 +1014,6 @@ impl ChatComposer {
     pub fn set_service_tier_commands(&mut self, commands: Vec<ServiceTierCommand>) {
         self.service_tier_commands = commands;
         self.sync_popups();
-    }
-
-    /// Replace the Overmind custom commands. Returns whether anything changed.
-    pub(crate) fn set_custom_commands(&mut self, discovery: CustomCommandDiscovery) -> bool {
-        if self.custom_commands == discovery {
-            return false;
-        }
-        self.custom_commands = discovery;
-        self.sync_popups();
-        true
-    }
-
-    pub(crate) fn custom_commands(&self) -> &[Arc<CustomCommand>] {
-        &self.custom_commands.commands
     }
 
     pub fn set_goal_command_enabled(&mut self, enabled: bool) {
@@ -3017,6 +3005,11 @@ impl ChatComposer {
             text_elements = Self::trim_text_elements(&expanded_input, &text, text_elements);
         }
 
+        // Overmind: pick up command files added or edited since the popup last opened.
+        if slash_validation == SlashValidation::Immediate && text.starts_with('/') {
+            self.refresh_custom_commands();
+        }
+
         if slash_validation == SlashValidation::Immediate
             && let SubmissionValidation::UnknownCommand(name) = self
                 .slash_input()
@@ -3984,6 +3977,13 @@ impl ChatComposer {
                 self.popups.active = ActivePopup::None;
             }
             return;
+        }
+        // Overmind: pick up custom command files that changed; rebuild an open popup with them.
+        if is_editing_slash_command_name
+            && self.refresh_custom_commands_if_changed()
+            && matches!(self.popups.active, ActivePopup::Command(_))
+        {
+            self.popups.active = ActivePopup::None;
         }
         match &mut self.popups.active {
             ActivePopup::Command(popup) => {

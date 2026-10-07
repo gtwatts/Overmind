@@ -17,12 +17,12 @@
 //! ```yaml
 //! description: shown next to the command in the slash popup
 //! argument-hint: "<brief>"
-//! skills: [photocraft, blender]        # added as `$skill` mentions
+//! skills: [photocraft, blender]        # attached as skills (see `skill_refs`)
 //! files: [~/notes/house-style.md]      # listed for the agent to read first
 //! pipelines: [high-end-whiteboard]     # resolved to pipeline.yaml + PIPELINE.md
 //! ```
 //!
-//! The body becomes the user turn. It may use `$ARGUMENTS` (all text after the command name),
+//! Expansion into the user turn lives in `expansion`. The body becomes the user turn. It may use `$ARGUMENTS` (all text after the command name),
 //! `$1`..`$9` (whitespace-separated words) and `$$` (a literal `$`). When the body uses none of
 //! the argument placeholders, the arguments are appended under a `## Request` heading.
 
@@ -32,6 +32,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use serde::Deserialize;
 
@@ -42,8 +43,8 @@ const MAX_COMMAND_FILE_BYTES: u64 = 64 * 1024;
 const MAX_COMMAND_NAME_LEN: usize = 64;
 const MAX_DESCRIPTION_CHARS: usize = 120;
 const DEFAULT_DESCRIPTION: &str = "custom command";
-const PIPELINE_DEFINITION_FILE: &str = "pipeline.yaml";
-const PIPELINE_GUIDE_FILE: &str = "PIPELINE.md";
+pub(crate) const PIPELINE_DEFINITION_FILE: &str = "pipeline.yaml";
+pub(crate) const PIPELINE_GUIDE_FILE: &str = "PIPELINE.md";
 
 /// Commands compiled into the binary. User and project files with the same name override them.
 const BUNDLED_COMMANDS: &[(&str, &str)] = &[
@@ -370,6 +371,36 @@ pub(crate) fn discover_custom_commands(env: &CustomCommandEnv) -> CustomCommandD
     CustomCommandDiscovery { commands, warnings }
 }
 
+/// Cheap change detector for the user and project command directories: every `.md` entry with
+/// its size and modification time. Discovery only needs to run again when this changes.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CommandDirsFingerprint(Vec<(PathBuf, Option<SystemTime>, u64)>);
+
+pub(crate) fn command_dirs_fingerprint(env: &CustomCommandEnv) -> CommandDirsFingerprint {
+    let mut entries = Vec::new();
+    for dir in std::iter::once(&env.user_commands_dir).chain(&env.project_commands_dirs) {
+        let Ok(read_dir) = fs::read_dir(dir) else {
+            continue;
+        };
+        for path in read_dir.filter_map(Result::ok).map(|entry| entry.path()) {
+            if path
+                .extension()
+                .is_none_or(|extension| extension != COMMAND_FILE_EXTENSION)
+            {
+                continue;
+            }
+            let metadata = fs::metadata(&path).ok();
+            let modified = metadata
+                .as_ref()
+                .and_then(|metadata| metadata.modified().ok());
+            let len = metadata.map_or(0, |metadata| metadata.len());
+            entries.push((path, modified, len));
+        }
+    }
+    entries.sort();
+    CommandDirsFingerprint(entries)
+}
+
 fn load_command_dir(
     dir: &Path,
     source: fn(PathBuf) -> CustomCommandSource,
@@ -426,140 +457,6 @@ fn load_command_file(
     };
     let contents = fs::read_to_string(path).map_err(|err| err.to_string())?;
     parse_custom_command(name, &contents, source(path.to_path_buf())).map(Some)
-}
-
-/// Build the user turn for `/name args`.
-pub(crate) fn expand_custom_command(
-    command: &CustomCommand,
-    args: &str,
-    env: &CustomCommandEnv,
-) -> String {
-    let args = args.trim();
-    let (mut text, used_args) = substitute_arguments(&command.body, args);
-    if !used_args && !args.is_empty() {
-        text.push_str("\n\n## Request\n\n");
-        text.push_str(args);
-    }
-    let context = render_context(command, env);
-    if !context.is_empty() {
-        text.push_str("\n\n");
-        text.push_str(&context);
-    }
-    text
-}
-
-/// Replace `$ARGUMENTS`, `$1`..`$9` and `$$`. Returns whether any argument placeholder was used.
-fn substitute_arguments(body: &str, args: &str) -> (String, bool) {
-    let positional: Vec<&str> = args.split_whitespace().collect();
-    let mut out = String::with_capacity(body.len() + args.len());
-    let mut used_args = false;
-    let mut rest = body;
-    while let Some(idx) = rest.find('$') {
-        out.push_str(&rest[..idx]);
-        let after = &rest[idx + 1..];
-        if let Some(tail) = after.strip_prefix("ARGUMENTS") {
-            out.push_str(args);
-            used_args = true;
-            rest = tail;
-        } else if let Some(tail) = after.strip_prefix('$') {
-            out.push('$');
-            rest = tail;
-        } else if let Some(index) = after
-            .chars()
-            .next()
-            .and_then(|ch| ch.to_digit(10))
-            .filter(|digit| *digit >= 1)
-        {
-            out.push_str(positional.get(index as usize - 1).copied().unwrap_or(""));
-            used_args = true;
-            rest = &after[1..];
-        } else {
-            out.push('$');
-            rest = after;
-        }
-    }
-    out.push_str(rest);
-    (out, used_args)
-}
-
-fn resolve_user_path(raw: &str, env: &CustomCommandEnv) -> PathBuf {
-    if let Some(home) = &env.home {
-        if raw == "~" {
-            return home.clone();
-        }
-        if let Some(rest) = raw.strip_prefix("~/") {
-            return home.join(rest);
-        }
-    }
-    let path = Path::new(raw);
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        env.cwd.join(path)
-    }
-}
-
-fn resolve_pipeline_dir(entry: &str, env: &CustomCommandEnv) -> Option<PathBuf> {
-    if entry.contains('/') || entry.starts_with('~') {
-        let path = resolve_user_path(entry, env);
-        return path.is_dir().then_some(path);
-    }
-    env.pipeline_dirs
-        .iter()
-        .map(|dir| dir.join(entry))
-        .find(|dir| {
-            dir.join(PIPELINE_DEFINITION_FILE).is_file() || dir.join(PIPELINE_GUIDE_FILE).is_file()
-        })
-}
-
-fn render_context(command: &CustomCommand, env: &CustomCommandEnv) -> String {
-    let mut lines = Vec::new();
-    if !command.skills.is_empty() {
-        let mentions: Vec<String> = command
-            .skills
-            .iter()
-            .map(|skill| format!("${skill}"))
-            .collect();
-        lines.push(format!("- Use these skills: {}", mentions.join(" ")));
-    }
-    if !command.files.is_empty() {
-        lines.push("- Read these files before starting:".to_string());
-        for raw in &command.files {
-            let path = resolve_user_path(raw, env);
-            if path.exists() {
-                lines.push(format!("  - {}", path.display()));
-            } else {
-                lines.push(format!("  - {} (not found; skip it)", path.display()));
-            }
-        }
-    }
-    if !command.pipelines.is_empty() {
-        lines.push(format!(
-            "- Use these pipelines as guidance ({PIPELINE_DEFINITION_FILE} holds the stages and dependencies, {PIPELINE_GUIDE_FILE} the guide):"
-        ));
-        for entry in &command.pipelines {
-            match resolve_pipeline_dir(entry, env) {
-                Some(dir) => {
-                    let files: Vec<String> = [PIPELINE_DEFINITION_FILE, PIPELINE_GUIDE_FILE]
-                        .iter()
-                        .map(|file| dir.join(file))
-                        .filter(|path| path.is_file())
-                        .map(|path| path.display().to_string())
-                        .collect();
-                    lines.push(format!("  - {entry}: {}", files.join(", ")));
-                }
-                None => lines.push(format!("  - {entry} (pipeline not found; skip it)")),
-            }
-        }
-    }
-    if lines.is_empty() {
-        return String::new();
-    }
-    format!(
-        "Context for /{} (loaded by Overmind):\n{}",
-        command.name,
-        lines.join("\n")
-    )
 }
 
 #[cfg(test)]

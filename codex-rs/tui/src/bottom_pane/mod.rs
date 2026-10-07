@@ -625,6 +625,7 @@ impl BottomPane {
     }
 
     /// Replace the Overmind custom slash commands. Returns whether anything changed.
+    #[cfg(test)]
     pub(crate) fn set_custom_commands(
         &mut self,
         discovery: crate::overmind::custom_commands::CustomCommandDiscovery,
@@ -640,6 +641,30 @@ impl BottomPane {
         &self,
     ) -> &[std::sync::Arc<crate::overmind::custom_commands::CustomCommand>] {
         self.composer.custom_commands()
+    }
+
+    pub(crate) fn custom_command_discovery(
+        &self,
+    ) -> &crate::overmind::custom_commands::CustomCommandDiscovery {
+        self.composer.custom_command_discovery()
+    }
+
+    /// Set where Overmind custom commands are discovered, then rescan them.
+    pub(crate) fn set_custom_commands_env(
+        &mut self,
+        env: crate::overmind::custom_commands::CustomCommandEnv,
+    ) {
+        self.composer.set_custom_commands_env(Some(env));
+        self.refresh_custom_commands();
+    }
+
+    /// Rescan Overmind custom command files. Returns whether anything changed.
+    pub(crate) fn refresh_custom_commands(&mut self) -> bool {
+        let changed = self.composer.refresh_custom_commands();
+        if changed {
+            self.request_redraw();
+        }
+        changed
     }
 
     pub fn set_goal_command_enabled(&mut self, enabled: bool) {
