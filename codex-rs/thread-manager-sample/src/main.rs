@@ -276,6 +276,7 @@ async fn new_config(
         include_collaboration_mode_instructions: false,
         include_skill_instructions: false,
         skill_max_context_tokens: None,
+        context_filter: None,
         cloud_skill_enabled: false,
         orchestrator_mcp_enabled: false,
         include_environment_context: false,

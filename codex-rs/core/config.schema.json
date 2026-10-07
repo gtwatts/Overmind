@@ -1362,6 +1362,43 @@
       },
       "type": "object"
     },
+    "ContextFilterToml": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "description": "Program and arguments to run, e.g. `[\"node\", \"/path/filter.mjs\"]`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "description": "Turns the filter on. Defaults to `false`; `command` alone does nothing.",
+          "type": "boolean"
+        },
+        "min_tool_output_bytes": {
+          "description": "Only tool outputs at least this many bytes long are offered for elision.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "skills": {
+          "description": "Let the filter hide entries of the `<skills_instructions>` catalog. Defaults to `true`.",
+          "type": "boolean"
+        },
+        "timeout_ms": {
+          "description": "Milliseconds to wait for the command before sending the request unfiltered.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "tool_outputs": {
+          "description": "Let the filter elide older tool outputs. Defaults to `true`.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "ContextManagementConfigToml": {
       "additionalProperties": false,
       "properties": {
@@ -6836,6 +6873,14 @@
     },
     "computer_use": {
       "$ref": "#/definitions/ComputerUseConfigToml"
+    },
+    "context_filter": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/ContextFilterToml"
+        }
+      ],
+      "description": "Opt-in external command that can trim the skills catalog and elide older tool outputs from each model request. Stored history is never changed."
     },
     "daybreak": {
       "description": "Default Daybreak preference for new threads and non-interactive turns.",

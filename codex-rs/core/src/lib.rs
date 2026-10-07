@@ -84,6 +84,7 @@ mod command_canonicalization;
 pub mod config;
 pub mod connectors;
 pub mod context;
+mod context_filter;
 mod context_manager;
 mod current_time;
 mod cyber_access_program;

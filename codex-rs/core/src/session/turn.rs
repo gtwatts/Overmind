@@ -1659,6 +1659,22 @@ async fn run_sampling_request(
         sess.services
             .executed_tool_calls
             .attach_to_prompt(&mut prompt_input, &mut executed_tool_calls_by_output);
+        // Opt-in per-request filter: trims this request's copy only, never the stored history.
+        if let Some(context_filter) = turn_context.config.context_filter.as_ref()
+            && !crate::guardian::is_basic_session_source(&turn_context.session_source)
+        {
+            let cwd = turn_context.cwd.display().to_string();
+            crate::context_filter::filter_prompt_input(
+                context_filter,
+                &mut prompt_input,
+                crate::context_filter::ContextFilterRequestMeta {
+                    turn_id: &turn_context.sub_id,
+                    model: &step_context.settings.model_info.slug,
+                    cwd: &cwd,
+                },
+            )
+            .await;
+        }
         let mut prompt = build_prompt(
             prompt_input,
             step_context.as_ref(),

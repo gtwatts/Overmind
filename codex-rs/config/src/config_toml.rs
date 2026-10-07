@@ -6,6 +6,7 @@ use std::num::NonZeroU64;
 use std::num::NonZeroUsize;
 use std::path::Path;
 
+use crate::ContextFilterToml;
 use crate::HooksToml;
 use crate::browser_use::BrowserUseConfigToml;
 use crate::computer_use::ComputerUseConfigToml;
@@ -491,6 +492,10 @@ pub struct ConfigToml {
 
     /// Lifecycle hooks configured inline in TOML plus user-level overrides.
     pub hooks: Option<HooksToml>,
+
+    /// Opt-in external command that can trim the skills catalog and elide older tool
+    /// outputs from each model request. Stored history is never changed.
+    pub context_filter: Option<ContextFilterToml>,
 
     /// User-level plugin config entries keyed by plugin name.
     #[serde(default)]
