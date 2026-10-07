@@ -35,6 +35,11 @@ Built-in commands always win a name clash. The file stem is the command name (`v
 `/video`; lowercase letters, digits, `-`, `_`). Malformed files are skipped with a warning in the
 transcript; they never crash the TUI.
 
+No restart needed: the command directories are rescanned every time the `/` popup opens and
+before a `/name ...` submission is checked, so a new or edited file shows up the next time you
+type `/`. `/commands` lists every custom command with its source file, how its skills resolve,
+and any skipped or malformed files with the reason.
+
 Why `$CODEX_HOME/commands`: it sits next to the existing per-user Codex directories
 (`skills/`, `rules/`, the former `prompts/`), honours `CODEX_HOME`, and mirrors the project-local
 `.codex/` convention that Codex already uses for trusted project config. The name matches what
@@ -46,7 +51,7 @@ Format:
 ---
 description: start a video job of any style    # shown in the slash popup
 argument-hint: "<who it's for / kind / style>"  # shown after the description
-skills: [photocraft, blender]                    # appended as $skill mentions
+skills: [photocraft, blender]                    # attached as skills (see below)
 files: [~/Documents/projects/ai-video-examples/index.md]   # listed for the agent to read
 pipelines: [blender-motion-graphics, high-end-whiteboard]  # resolved to pipeline.yaml + PIPELINE.md
 ---
@@ -61,15 +66,33 @@ user turn (body plus a short "Context for /name" block that lists skills, files 
 resolved paths) and is submitted like a normal message, so queueing, steering and history keep
 working.
 
+Skills named in `skills:` are attached the same way the `$` popup attaches them: as structured
+skill inputs bound to the skill's `SKILL.md` path. This matters for plugin skills, which the
+skills list names `<plugin>:<skill>` (`photocraft:photocraft`, `blender-mcp:blender`,
+`gordon-skills:remotion-video-production`). Core only matches a plain `$name` text mention against
+the exact full name, and the TUI mention parser stops at `:`, so a bare `$photocraft` in the text
+never loaded the plugin skill. An entry may use the full name or the bare skill name; a bare name
+resolves to `<plugin>:<name>` when exactly one plugin provides it (or the plugin is named after
+the skill). Entries that are missing, disabled or ambiguous are listed in the context block and in
+`/commands` instead of being silently dropped.
+
 Pipelines named in `pipelines:` are looked up in `<project>/.codex/pipelines/<name>` (trusted
 projects), `$CODEX_HOME/pipelines/<name>`, and the `pipelines/` folder of every plugin in
 `$CODEX_HOME/local-marketplaces/*/plugins/*` (this is where Todd's `gordon-workflows` pipelines
 live today). An entry containing `/` or starting with `~` is treated as a directory path.
 
-`/video` ships as the first bundled command (converted from the `$video` skill). It covers
-Blender for 3D, Photocraft for assets, Remotion/HTML for storyboarded composition, FFmpeg for
-audio sync, and default formats by style. A copy lives in `~/.codex/commands/video.md` on watts,
-so it can be edited without rebuilding.
+Bundled starter commands (plain markdown, built from Todd's existing skills and pipelines; the
+pipelines and skills themselves are not modified):
+
+| Command | What it does | Skills / context |
+| --- | --- | --- |
+| `/video <brief>` | any video job (converted from the `$video` skill): Blender, Photocraft, Remotion/HTML, FFmpeg, default formats by style | photocraft, blender, remotion-video-production, ffmpeg-skill; example index; blender-motion-graphics, storyboard-pipeline-creator, high-end-whiteboard pipelines |
+| `/whiteboard <brief>` | high-end whiteboard video through the `high-end-whiteboard` pipeline (Photocraft board craft, ImageMagick fallback, approval gates kept) | high-end-whiteboard, photocraft, imagemagick, whiteboard-animator, remotion-video-production; high-end-whiteboard pipeline |
+| `/photocraft <asset>` | create or edit image assets with the Photocraft MCP tools or CLI, keeping editable masters | photocraft |
+| `/examples <brief>` | search `~/Documents/projects/ai-video-examples` for matching references (answer only) | library README and index |
+
+Copies live in `~/.codex/commands/` on watts, so they can be edited without rebuilding (a user
+file overrides the bundled one with the same name).
 
 ### 2. Native pipelines (M2)
 
@@ -113,7 +136,7 @@ Visual feedback where Codex shows little today:
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
-| M1 | User-defined slash commands, bundled `/video`, tests | in progress on `overmind/m1-slash-commands` |
+| M1 | User-defined slash commands, bundled `/video` `/whiteboard` `/photocraft` `/examples`, skill attachment, live reload, `/commands`, tests | in review on `overmind/m1-slash-commands` |
 | M2 | Native pipelines (port `pipeline.yaml` + `PIPELINE.md`), run state, inspect/re-run | planned |
 | M3 | TUI visuals: pipeline panel, progress bars, status indicators | planned |
 | M4 | Carry over Todd's setup | planned |
@@ -123,8 +146,8 @@ Visual feedback where Codex shows little today:
 - `$video` skill (`~/.codex/skills/video/SKILL.md`): replaced by `/video` (M1). The skill stays
   in place for stock Codex.
 - Motion-graphics example library (`~/Documents/projects/ai-video-examples`, 161+ examples with
-  `index.md`, `index.json`, `patterns.md`, `html-video.md`): referenced by `/video` today; M4 adds
-  a `/examples <style or model>` command and lets pipelines attach matching examples as context.
+  `index.md`, `index.json`, `patterns.md`, `html-video.md`): referenced by `/video`, and
+  searchable with `/examples <brief>` (M1). M4 lets pipelines attach matching examples as context.
 - Photocraft MCP plugin (`~/plugins/photocraft`): keep using it as a Codex plugin; M3/M4 show its
   job progress (`jobs_list`, `session_list`) in the TUI.
 - Daily motion-graphics example search routine: keep it running outside the TUI; M4 turns it into
@@ -160,7 +183,9 @@ git checkout overmind/main && git rebase main   # or merge, if the branch is sha
 Rules that keep conflicts small:
 
 1. Overmind logic lives in Overmind modules: `codex-rs/tui/src/overmind/`,
-   `codex-rs/tui/src/chatwidget/overmind_commands.rs`, `codex-rs/tui/assets/overmind/`, and new
+   `codex-rs/tui/src/chatwidget/overmind_commands.rs`,
+   `codex-rs/tui/src/bottom_pane/chat_composer/overmind_commands.rs`,
+   `codex-rs/tui/assets/overmind/`, and new
    `overmind-*` crates. Upstream files only get small hooks that call into them.
 2. Do not reformat or reorganize upstream code; keep diffs in upstream files minimal and
    mechanical (an extra enum variant, an extra parameter, a one-line call).
@@ -181,6 +206,11 @@ Rules that keep conflicts small:
 - `codex-rs/tui/src/chatwidget.rs`, `chatwidget/constructor.rs`, `chatwidget/session_flow.rs`,
   `chatwidget/input_flow.rs`, `chatwidget/slash_dispatch.rs`: load commands, expand submissions
 - `codex-rs/tui/Cargo.toml` (+ `Cargo.lock`): `serde_yaml` for frontmatter
+- `codex-rs/tui/src/slash_command.rs`: the `Commands` variant (`/commands`) and its availability
+  lists; `bottom_pane/slash_commands.rs` test list updated for it
+- `codex-rs/tui/src/bottom_pane/chat_composer.rs`: `mod overmind_commands;`, the env field, and
+  two one-line rescan hooks (popup open, slash submission); the logic is in
+  `chat_composer/overmind_commands.rs`
 
 ## Building and trying Overmind side by side
 
@@ -191,5 +221,5 @@ it from the target directory under another name:
 cd ~/Documents/projects/Overmind/codex-rs
 cargo build -p codex-cli --bin codex
 alias overmind="$HOME/Documents/projects/Overmind/codex-rs/target/debug/codex"
-overmind            # then type /video <brief>
+overmind            # then type / to see /video, /whiteboard, /photocraft, /examples; /commands lists them
 ```
