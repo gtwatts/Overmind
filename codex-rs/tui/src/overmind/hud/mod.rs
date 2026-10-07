@@ -1,7 +1,8 @@
 //! Overmind HUD: compact visual feedback about the session and the turn in flight.
 //!
 //! The HUD is one row above the composer that combines, as width allows: live turn activity
-//! (phase, elapsed time, tool counts), update_plan progress, a context-window gauge, usage-limit
+//! (phase, elapsed time, tool counts), `/pipeline` stage progress, update_plan progress, a
+//! context-window gauge, usage-limit
 //! bars and a provider badge (for example when a Cursor model is active). After each turn a
 //! one-line summary (tokens, tools, plan, context, optional cost) goes into the transcript.
 //!
@@ -80,6 +81,50 @@ impl PlanProgress {
     }
 }
 
+/// Progress of the `/pipeline` run this session is driving.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PipelineProgress {
+    pub(crate) name: String,
+    /// Stage ids and statuses in execution order.
+    pub(crate) stages: Vec<(String, meter::StageStatus)>,
+    /// Id of the stage running or waiting, if any.
+    pub(crate) current: Option<String>,
+}
+
+impl PipelineProgress {
+    pub(crate) fn done(&self) -> usize {
+        self.stages
+            .iter()
+            .filter(|(_, status)| {
+                matches!(
+                    status,
+                    meter::StageStatus::Done | meter::StageStatus::Skipped
+                )
+            })
+            .count()
+    }
+
+    /// The status of the current stage, or `Done` when every stage finished.
+    pub(crate) fn headline(&self) -> meter::StageStatus {
+        use meter::StageStatus;
+        for wanted in [
+            StageStatus::Failed,
+            StageStatus::Waiting,
+            StageStatus::Running,
+            StageStatus::Stale,
+        ] {
+            if self.stages.iter().any(|(_, status)| *status == wanted) {
+                return wanted;
+            }
+        }
+        if self.done() == self.stages.len() {
+            StageStatus::Done
+        } else {
+            StageStatus::Pending
+        }
+    }
+}
+
 /// One usage-limit window (for example the 5h or weekly window).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct LimitGauge {
@@ -101,6 +146,7 @@ pub(crate) struct HudState {
     palette: Palette,
     context: Option<ContextGauge>,
     plan: Option<PlanProgress>,
+    pipeline: Option<PipelineProgress>,
     limits: Vec<LimitGauge>,
     badge: Option<ModelBadge>,
     turn: Option<TurnActivity>,
@@ -120,6 +166,7 @@ impl HudState {
             palette,
             context: None,
             plan: None,
+            pipeline: None,
             limits: Vec::new(),
             badge: None,
             turn: None,
@@ -133,12 +180,24 @@ impl HudState {
         self.config = config;
     }
 
+    /// Glyph set and palette in effect, for other Overmind surfaces to match the HUD.
+    pub(crate) fn render_style(&self) -> (Glyphs, Palette) {
+        (self.glyphs, self.palette)
+    }
+
     pub(crate) fn set_context(&mut self, context: Option<ContextGauge>) {
         self.context = context;
     }
 
     pub(crate) fn set_plan(&mut self, update: &UpdatePlanArgs) {
         self.plan = PlanProgress::from_update(update);
+    }
+
+    /// Returns whether the HUD row needs a redraw.
+    pub(crate) fn set_pipeline(&mut self, pipeline: Option<PipelineProgress>) -> bool {
+        let changed = self.pipeline != pipeline;
+        self.pipeline = pipeline;
+        changed && self.config.pipeline && self.row_enabled()
     }
 
     pub(crate) fn set_limits(&mut self, limits: Vec<LimitGauge>) {

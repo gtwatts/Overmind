@@ -228,10 +228,6 @@ pub(crate) fn progress(
 }
 
 /// Lifecycle state of a pipeline stage or plan step.
-#[allow(
-    dead_code,
-    reason = "Stage widgets are shared with the upcoming M2 pipelines."
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum StageStatus {
     Pending,
@@ -239,12 +235,12 @@ pub(crate) enum StageStatus {
     Done,
     Failed,
     Skipped,
+    /// Ready, but waiting for the user (an approval gate).
+    Waiting,
+    /// Was done, but its outputs or an upstream stage changed.
+    Stale,
 }
 
-#[allow(
-    dead_code,
-    reason = "Stage widgets are shared with the upcoming M2 pipelines."
-)]
 impl StageStatus {
     pub(crate) fn glyph(self, glyphs: Glyphs) -> &'static str {
         match (self, glyphs) {
@@ -253,11 +249,15 @@ impl StageStatus {
             (StageStatus::Done, Glyphs::Unicode) => "✓",
             (StageStatus::Failed, Glyphs::Unicode) => "✗",
             (StageStatus::Skipped, Glyphs::Unicode) => "–",
+            (StageStatus::Waiting, Glyphs::Unicode) => "◇",
+            (StageStatus::Stale, Glyphs::Unicode) => "↻",
             (StageStatus::Pending, Glyphs::Ascii) => ".",
             (StageStatus::Running, Glyphs::Ascii) => ">",
             (StageStatus::Done, Glyphs::Ascii) => "x",
             (StageStatus::Failed, Glyphs::Ascii) => "!",
             (StageStatus::Skipped, Glyphs::Ascii) => "-",
+            (StageStatus::Waiting, Glyphs::Ascii) => "?",
+            (StageStatus::Stale, Glyphs::Ascii) => "~",
         }
     }
 
@@ -267,15 +267,12 @@ impl StageStatus {
             StageStatus::Running => Tone::Calm,
             StageStatus::Done => Tone::Good,
             StageStatus::Failed => Tone::Critical,
+            StageStatus::Waiting | StageStatus::Stale => Tone::Warn,
         }
     }
 }
 
 /// `✓ plan  ● build  ○ test`: a compact stage track for pipelines.
-#[allow(
-    dead_code,
-    reason = "Stage widgets are shared with the upcoming M2 pipelines."
-)]
 pub(crate) fn stage_track(
     stages: &[(&str, StageStatus)],
     glyphs: Glyphs,
@@ -290,11 +287,31 @@ pub(crate) fn stage_track(
         let label_tone = match status {
             StageStatus::Running => Tone::Plain,
             StageStatus::Failed => Tone::Critical,
+            StageStatus::Waiting | StageStatus::Stale => Tone::Warn,
             StageStatus::Pending | StageStatus::Done | StageStatus::Skipped => Tone::Muted,
         };
         spans.push(palette.span(format!(" {label}"), label_tone));
     }
     spans
+}
+
+/// `✓✓●○○`: one glyph per stage, for tracks too long to label.
+pub(crate) fn stage_dots(
+    stages: &[StageStatus],
+    glyphs: Glyphs,
+    palette: Palette,
+) -> Vec<Span<'static>> {
+    let dots = stages
+        .iter()
+        .map(|status| palette.span(status.glyph(glyphs), status.tone()));
+    match glyphs {
+        Glyphs::Unicode => dots.collect(),
+        // ASCII pending dots would read as an ellipsis without brackets.
+        Glyphs::Ascii => std::iter::once(palette.span("[", Tone::Muted))
+            .chain(dots)
+            .chain(std::iter::once(palette.span("]", Tone::Muted)))
+            .collect(),
+    }
 }
 
 /// Truncate `text` to at most `max` display columns, ending with an ellipsis when cut.

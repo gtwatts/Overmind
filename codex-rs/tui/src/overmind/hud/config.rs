@@ -10,6 +10,7 @@
 //! context_gauge = true  # context-window gauge
 //! activity = true       # live phase, elapsed time and tool counts while a turn runs
 //! plan_progress = true  # update_plan progress bar
+//! pipeline = true       # stage track of the /pipeline run in progress
 //! rate_limits = true    # usage-limit bars when the provider reports them
 //! model_badge = true    # provider badge for non-OpenAI providers such as Cursor
 //! turn_summary = true   # per-turn token/tool/cost line in the transcript
@@ -61,6 +62,7 @@ pub(crate) struct HudConfig {
     pub(crate) context_gauge: bool,
     pub(crate) activity: bool,
     pub(crate) plan_progress: bool,
+    pub(crate) pipeline: bool,
     pub(crate) rate_limits: bool,
     pub(crate) model_badge: bool,
     pub(crate) turn_summary: bool,
@@ -75,6 +77,7 @@ impl Default for HudConfig {
             context_gauge: true,
             activity: true,
             plan_progress: true,
+            pipeline: true,
             rate_limits: true,
             model_badge: true,
             turn_summary: true,
@@ -92,6 +95,7 @@ impl HudConfig {
             context_gauge: false,
             activity: false,
             plan_progress: false,
+            pipeline: false,
             rate_limits: false,
             model_badge: false,
             turn_summary: false,
@@ -106,6 +110,7 @@ impl HudConfig {
             && (self.context_gauge
                 || self.activity
                 || self.plan_progress
+                || self.pipeline
                 || self.rate_limits
                 || self.model_badge)
     }
