@@ -51,6 +51,7 @@ impl ChatWidget {
                 text_elements,
             } => {
                 let user_message = self.user_message_from_submission(text, text_elements);
+                let user_message = self.expand_custom_command_submission(user_message);
                 if user_message.text.is_empty()
                     && user_message.local_images.is_empty()
                     && user_message.remote_image_urls.is_empty()
@@ -186,6 +187,7 @@ impl ChatWidget {
                             name,
                             self.builtin_command_flags(),
                             &self.current_model_service_tier_commands(),
+                            self.bottom_pane.custom_commands(),
                         )
                         .is_some_and(|command| {
                             !command.supports_inline_args()

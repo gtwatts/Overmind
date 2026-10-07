@@ -544,6 +544,7 @@ impl ChatWidget {
             }
             SlashCommand::Daemon => self.app_event_tx.send(AppEvent::OpenDaemonMenu),
             SlashCommand::Warnings => self.app_event_tx.send(AppEvent::OpenWarnings),
+            SlashCommand::Commands => self.show_custom_commands(),
             SlashCommand::Status => {
                 if self.should_prefetch_rate_limits() {
                     let request_id = self.next_status_refresh_request_id;
@@ -1152,9 +1153,12 @@ impl ChatWidget {
         }
 
         let service_tier_commands = self.current_model_service_tier_commands();
-        let Some(command) =
-            find_slash_command(name, self.builtin_command_flags(), &service_tier_commands)
-        else {
+        let Some(command) = find_slash_command(
+            name,
+            self.builtin_command_flags(),
+            &service_tier_commands,
+            self.bottom_pane.custom_commands(),
+        ) else {
             self.add_info_message(
                 format!(
                     r#"Unrecognized command '/{name}'. Type "/" for a list of supported commands."#
@@ -1163,6 +1167,18 @@ impl ChatWidget {
             );
             return QueueDrain::Continue;
         };
+
+        if let SlashCommandItem::Custom(_) = command {
+            let user_message = self.expand_custom_command_submission(UserMessage {
+                text,
+                local_images,
+                remote_image_urls,
+                text_elements,
+                mention_bindings,
+            });
+            self.submit_user_message(user_message);
+            return QueueDrain::Stop;
+        }
 
         if rest.is_empty() {
             return match command {
@@ -1174,6 +1190,7 @@ impl ChatWidget {
                     self.handle_service_tier_command_dispatch(command);
                     QueueDrain::Continue
                 }
+                SlashCommandItem::Custom(_) => QueueDrain::Continue,
             };
         }
 
@@ -1287,6 +1304,7 @@ impl ChatWidget {
             | SlashCommand::Rename
             | SlashCommand::Voice
             | SlashCommand::Recap
+            | SlashCommand::Commands
             | SlashCommand::TestApproval => QueueDrain::Continue,
             SlashCommand::Cd => match self.thread_id {
                 Some(thread_id) if self.can_change_working_directory(thread_id) => QueueDrain::Stop,

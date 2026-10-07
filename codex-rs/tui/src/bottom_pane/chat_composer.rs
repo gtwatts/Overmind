@@ -358,6 +358,7 @@ use crate::keymap::RuntimeKeymap;
 use crate::keymap::VimNormalKeymap;
 use crate::keymap::user_bindings;
 use crate::onboarding::mark_underlined_hyperlink;
+use crate::overmind::custom_commands::CustomCommandDiscovery;
 use crate::render::Insets;
 use crate::render::RectExt;
 use crate::render::renderable::Renderable;
@@ -377,6 +378,7 @@ mod footer_state;
 mod history_search;
 mod inline_input;
 mod mouse;
+mod overmind_commands;
 mod paste_input;
 mod popup_state;
 mod reconnect;
@@ -631,6 +633,9 @@ pub(crate) struct ChatComposer {
     token_activity_command_enabled: bool,
     service_tier_commands_enabled: bool,
     service_tier_commands: Vec<ServiceTierCommand>,
+    /// Overmind user-defined slash commands and their discovery warnings.
+    custom_commands: CustomCommandDiscovery,
+    custom_commands_watch: Option<Box<overmind_commands::CustomCommandWatch>>,
     mentions_v2_enabled: bool,
     goal_command_enabled: bool,
     voice_command_enabled: bool,
@@ -687,6 +692,7 @@ impl ChatComposer {
             self.draft.is_bash_mode,
             self.builtin_command_flags(),
             &self.service_tier_commands,
+            &self.custom_commands.commands,
         )
     }
 
@@ -803,6 +809,8 @@ impl ChatComposer {
             token_activity_command_enabled: false,
             service_tier_commands_enabled: false,
             service_tier_commands: Vec::new(),
+            custom_commands: CustomCommandDiscovery::default(),
+            custom_commands_watch: None,
             mentions_v2_enabled: false,
             goal_command_enabled: false,
             voice_command_enabled: false,
@@ -2997,6 +3005,11 @@ impl ChatComposer {
             text_elements = Self::trim_text_elements(&expanded_input, &text, text_elements);
         }
 
+        // Overmind: pick up command files added or edited since the popup last opened.
+        if slash_validation == SlashValidation::Immediate && text.starts_with('/') {
+            self.refresh_custom_commands();
+        }
+
         if slash_validation == SlashValidation::Immediate
             && let SubmissionValidation::UnknownCommand(name) = self
                 .slash_input()
@@ -3291,16 +3304,21 @@ impl ChatComposer {
             self.record_pending_slash_command_history();
             return Some(InputResult::None);
         }
+        let result = match &command {
+            SlashCommandItem::Builtin(cmd) => InputResult::Command(*cmd),
+            SlashCommandItem::ServiceTier(command) => {
+                InputResult::ServiceTierCommand(command.clone())
+            }
+            // `SlashInput::bare_command` never yields custom commands; they submit as text.
+            SlashCommandItem::Custom(_) => return None,
+        };
         self.stage_slash_command_history(&command);
         if !matches!(command, SlashCommandItem::Builtin(cmd) if cmd.requires_dispatch_validation())
         {
             self.draft.textarea.set_text_clearing_elements("");
             self.draft.is_bash_mode = false;
         }
-        Some(match command {
-            SlashCommandItem::Builtin(cmd) => InputResult::Command(cmd),
-            SlashCommandItem::ServiceTier(command) => InputResult::ServiceTierCommand(command),
-        })
+        Some(result)
     }
 
     /// Check if the input is a slash command with args (e.g., /review args) and dispatch it.
@@ -3959,6 +3977,13 @@ impl ChatComposer {
                 self.popups.active = ActivePopup::None;
             }
             return;
+        }
+        // Overmind: pick up custom command files that changed; rebuild an open popup with them.
+        if is_editing_slash_command_name
+            && self.refresh_custom_commands_if_changed()
+            && matches!(self.popups.active, ActivePopup::Command(_))
+        {
+            self.popups.active = ActivePopup::None;
         }
         match &mut self.popups.active {
             ActivePopup::Command(popup) => {
@@ -9342,6 +9367,9 @@ mod tests {
                     Some(CommandItem::Builtin(cmd)) => assert_eq!(cmd.command(), expected),
                     Some(CommandItem::ServiceTier(command)) => {
                         panic!("expected {expected} command, got service tier {command:?}")
+                    }
+                    Some(CommandItem::Custom(command)) => {
+                        panic!("expected {expected} command, got custom command {command:?}")
                     }
                     None => panic!("no selected command for '{input}'"),
                 },

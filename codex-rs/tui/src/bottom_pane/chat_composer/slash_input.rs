@@ -1,6 +1,7 @@
 //! Slash-command input parsing, cursor detection, and completion helpers.
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
@@ -15,6 +16,7 @@ use crate::bottom_pane::slash_commands::ServiceTierCommand;
 use crate::bottom_pane::slash_commands::SlashCommandItem;
 use crate::bottom_pane::slash_commands::find_slash_command;
 use crate::bottom_pane::slash_commands::has_slash_command_prefix;
+use crate::overmind::custom_commands::CustomCommand;
 use crate::slash_command::SlashCommand;
 use codex_protocol::user_input::ByteRange;
 use codex_protocol::user_input::TextElement;
@@ -48,6 +50,7 @@ pub(super) struct SlashInput<'a> {
     is_bash_mode: bool,
     command_flags: BuiltinCommandFlags,
     service_tier_commands: &'a [ServiceTierCommand],
+    custom_commands: &'a [Arc<CustomCommand>],
 }
 
 impl<'a> SlashInput<'a> {
@@ -56,12 +59,14 @@ impl<'a> SlashInput<'a> {
         is_bash_mode: bool,
         command_flags: BuiltinCommandFlags,
         service_tier_commands: &'a [ServiceTierCommand],
+        custom_commands: &'a [Arc<CustomCommand>],
     ) -> Self {
         Self {
             enabled,
             is_bash_mode,
             command_flags,
             service_tier_commands,
+            custom_commands,
         }
     }
 
@@ -96,6 +101,10 @@ impl<'a> SlashInput<'a> {
             return None;
         }
         let command = self.command(name)?;
+        // Custom commands are submitted as text so `ChatWidget` can expand them.
+        if matches!(command, SlashCommandItem::Custom(_)) {
+            return None;
+        }
         if command.supports_inline_args()
             && parse_slash_name(text).is_some_and(|(_, full_rest, _)| !full_rest.is_empty())
         {
@@ -165,7 +174,12 @@ impl<'a> SlashInput<'a> {
             return rest.is_empty();
         }
 
-        has_slash_command_prefix(name, self.command_flags, self.service_tier_commands)
+        has_slash_command_prefix(
+            name,
+            self.command_flags,
+            self.service_tier_commands,
+            self.custom_commands,
+        )
     }
 
     pub(super) fn command_popup(&self, filter_text: &str) -> CommandPopup {
@@ -184,13 +198,19 @@ impl<'a> SlashInput<'a> {
                 side_conversation_active: self.command_flags.side_conversation_active,
             },
             self.service_tier_commands.to_vec(),
+            self.custom_commands,
         );
         command_popup.on_composer_text_change(filter_text.to_string());
         command_popup
     }
 
     pub(super) fn command(&self, name: &str) -> Option<SlashCommandItem> {
-        find_slash_command(name, self.command_flags, self.service_tier_commands)
+        find_slash_command(
+            name,
+            self.command_flags,
+            self.service_tier_commands,
+            self.custom_commands,
+        )
     }
 }
 
@@ -383,11 +403,14 @@ impl ChatComposer {
                                     |(_, args, _)| parent_owned_command_is_allowed(*cmd, args),
                                 )
                             }
-                            CommandItem::ServiceTier(_) => false,
+                            CommandItem::ServiceTier(_) | CommandItem::Custom(_) => false,
                         };
                         if !command_is_allowed {
                             return (InputResult::ParentOwnedInputBlocked, true);
                         }
+                    }
+                    if let CommandItem::Custom(command) = &sel {
+                        return self.accept_selected_custom_command(command);
                     }
                     if self
                         .complete_selected_slash_command_preserving_existing_draft_tail_as_inline_args(
@@ -410,6 +433,7 @@ impl ChatComposer {
                             CommandItem::ServiceTier(command) => {
                                 InputResult::ServiceTierCommand(command)
                             }
+                            CommandItem::Custom(_) => InputResult::None,
                         },
                         true,
                     );
@@ -419,6 +443,30 @@ impl ChatComposer {
             }
             input => self.handle_input_basic(input),
         }
+    }
+
+    /// Enter on a popup-selected custom command.
+    ///
+    /// Commands that declare an argument hint are completed to `/name ` so the user can type the
+    /// arguments; commands without one are submitted right away. Submission goes through the
+    /// normal text path, and `ChatWidget` expands the command body.
+    fn accept_selected_custom_command(&mut self, command: &CustomCommand) -> (InputResult, bool) {
+        let ready_to_submit =
+            parse_slash_name(self.draft.textarea.text()).is_some_and(|(name, args, _)| {
+                name == command.name && (!args.trim().is_empty() || command.argument_hint.is_none())
+            });
+        if ready_to_submit {
+            self.popups.active = ActivePopup::None;
+            return self.handle_submission(/*should_queue*/ false);
+        }
+        self.draft
+            .textarea
+            .set_text_clearing_elements(&format!("/{} ", command.name));
+        self.draft.is_bash_mode = false;
+        self.draft
+            .textarea
+            .set_cursor(self.draft.textarea.text().len());
+        (InputResult::None, true)
     }
 
     fn complete_selected_slash_command_preserving_existing_draft_tail_as_inline_args(
@@ -614,6 +662,9 @@ mod tests {
     use super::*;
     use crate::app_event::AppEvent;
     use crate::bottom_pane::AppEventSender;
+    use crate::overmind::custom_commands::CustomCommandDiscovery;
+    use crate::overmind::custom_commands::CustomCommandSource;
+    use crate::overmind::custom_commands::parse_custom_command;
     use pretty_assertions::assert_eq;
     use tokio::sync::mpsc::unbounded_channel;
 
@@ -644,6 +695,64 @@ mod tests {
 
     fn composer_with_draft_tail(prefix: &str, draft: &str) -> ChatComposer {
         composer_with_text_at_cursor(&format!("{prefix}{draft}"), prefix.len())
+    }
+
+    fn install_custom_command(composer: &mut ChatComposer, name: &str, contents: &str) {
+        let command = parse_custom_command(name, contents, CustomCommandSource::Bundled)
+            .expect("valid custom command");
+        composer.set_custom_commands(CustomCommandDiscovery {
+            commands: vec![Arc::new(command)],
+            warnings: Vec::new(),
+        });
+    }
+
+    fn submitted_text(result: InputResult) -> String {
+        match result {
+            InputResult::Submitted { text, .. } => text,
+            other => panic!("expected submitted text, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enter_on_custom_command_with_hint_completes_then_submits_text() {
+        let mut composer = test_composer();
+        install_custom_command(
+            &mut composer,
+            "video",
+            "---\nargument-hint: \"<brief>\"\n---\nBrief: $ARGUMENTS",
+        );
+        composer.draft.textarea.set_text_clearing_elements("/vid");
+        composer.draft.textarea.set_cursor(/*pos*/ 4);
+        composer.sync_popups();
+        assert!(composer.popup_active());
+
+        assert_eq!(press(&mut composer, KeyCode::Enter), InputResult::None);
+        assert_eq!(composer.draft.textarea.text(), "/video ");
+
+        let draft = "/video coffee ad";
+        composer.draft.textarea.set_text_clearing_elements(draft);
+        composer.draft.textarea.set_cursor(draft.len());
+        composer.sync_popups();
+        assert_eq!(submitted_text(press(&mut composer, KeyCode::Enter)), draft);
+    }
+
+    #[test]
+    fn enter_on_custom_command_without_hint_submits_immediately() {
+        let mut composer = test_composer();
+        install_custom_command(&mut composer, "standup", "Write my standup notes.");
+        composer
+            .draft
+            .textarea
+            .set_text_clearing_elements("/standup");
+        composer.draft.textarea.set_cursor(/*pos*/ 8);
+        composer.sync_popups();
+        assert!(composer.popup_active());
+
+        assert_eq!(
+            submitted_text(press(&mut composer, KeyCode::Enter)),
+            "/standup"
+        );
+        assert!(composer.draft.textarea.is_empty());
     }
 
     #[test]

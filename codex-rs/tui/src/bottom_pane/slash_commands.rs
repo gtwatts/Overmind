@@ -4,9 +4,11 @@
 //! and the command popup. Centralizing them here keeps those call sites small
 //! and ensures they stay in sync.
 use std::str::FromStr;
+use std::sync::Arc;
 
 use codex_utils_fuzzy_match::fuzzy_match;
 
+use crate::overmind::custom_commands::CustomCommand;
 use crate::slash_command::SlashCommand;
 use crate::slash_command::built_in_slash_commands;
 
@@ -21,6 +23,8 @@ pub(crate) struct ServiceTierCommand {
 pub(crate) enum SlashCommandItem {
     Builtin(SlashCommand),
     ServiceTier(ServiceTierCommand),
+    /// Overmind user-defined command. It is submitted as text and expanded by `ChatWidget`.
+    Custom(Arc<CustomCommand>),
 }
 
 impl SlashCommandItem {
@@ -28,13 +32,14 @@ impl SlashCommandItem {
         match self {
             Self::Builtin(cmd) => cmd.command(),
             Self::ServiceTier(command) => &command.name,
+            Self::Custom(command) => &command.name,
         }
     }
 
     pub(crate) fn supports_inline_args(&self) -> bool {
         match self {
             Self::Builtin(cmd) => cmd.supports_inline_args(),
-            Self::ServiceTier(_) => false,
+            Self::ServiceTier(_) | Self::Custom(_) => false,
         }
     }
 
@@ -42,13 +47,14 @@ impl SlashCommandItem {
         match self {
             Self::Builtin(cmd) => cmd.available_in_side_conversation(),
             Self::ServiceTier(_) => false,
+            Self::Custom(_) => true,
         }
     }
 
     pub(crate) fn available_during_task(&self) -> bool {
         match self {
             Self::Builtin(cmd) => cmd.available_during_task(),
-            Self::ServiceTier(_) => true,
+            Self::ServiceTier(_) | Self::Custom(_) => true,
         }
     }
 }
@@ -90,6 +96,7 @@ pub(crate) fn builtins_for_input(flags: BuiltinCommandFlags) -> Vec<(&'static st
 pub(crate) fn commands_for_input(
     flags: BuiltinCommandFlags,
     service_tier_commands: &[ServiceTierCommand],
+    custom_commands: &[Arc<CustomCommand>],
 ) -> Vec<SlashCommandItem> {
     let mut commands = Vec::new();
     let tiers_enabled = flags.service_tier_commands_enabled;
@@ -104,6 +111,13 @@ pub(crate) fn commands_for_input(
             );
         }
     }
+    commands.extend(
+        custom_commands
+            .iter()
+            .filter(|command| find_builtin_command(&command.name, flags).is_none())
+            .cloned()
+            .map(SlashCommandItem::Custom),
+    );
     commands
         .into_iter()
         .filter(|cmd| !flags.side_conversation_active || cmd.available_in_side_conversation())
@@ -136,6 +150,7 @@ pub(crate) fn find_slash_command(
     name: &str,
     flags: BuiltinCommandFlags,
     service_tier_commands: &[ServiceTierCommand],
+    custom_commands: &[Arc<CustomCommand>],
 ) -> Option<SlashCommandItem> {
     if let Some(cmd) = find_builtin_command(name, flags) {
         return Some(SlashCommandItem::Builtin(cmd));
@@ -151,12 +166,20 @@ pub(crate) fn find_slash_command(
                 .map(SlashCommandItem::ServiceTier)
         })
         .flatten()
+        .or_else(|| {
+            custom_commands
+                .iter()
+                .find(|command| command.name == name)
+                .cloned()
+                .map(SlashCommandItem::Custom)
+        })
 }
 
 pub(crate) fn has_slash_command_prefix(
     name: &str,
     flags: BuiltinCommandFlags,
     service_tier_commands: &[ServiceTierCommand],
+    custom_commands: &[Arc<CustomCommand>],
 ) -> bool {
     // A side conversation can describe a known command as unavailable in the
     // popup, even though dispatch must continue to reject it.
@@ -166,6 +189,7 @@ pub(crate) fn has_slash_command_prefix(
             ..flags
         },
         service_tier_commands,
+        custom_commands,
     )
     .into_iter()
     .any(|command| fuzzy_match(command.command(), name).is_some())
@@ -174,6 +198,8 @@ pub(crate) fn has_slash_command_prefix(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::overmind::custom_commands::CustomCommandSource;
+    use crate::overmind::custom_commands::parse_custom_command;
     use pretty_assertions::assert_eq;
     use std::slice::from_ref;
 
@@ -253,7 +279,7 @@ mod tests {
             description: "fastest inference".to_string(),
         }];
 
-        assert_eq!(find_slash_command("fast", flags, &commands), None);
+        assert_eq!(find_slash_command("fast", flags, &commands, &[]), None);
     }
 
     #[test]
@@ -271,7 +297,7 @@ mod tests {
             },
         ];
 
-        let items = commands_for_input(all_enabled_flags(), &commands);
+        let items = commands_for_input(all_enabled_flags(), &commands, &[]);
         let model_idx = items
             .iter()
             .position(|item| matches!(item, SlashCommandItem::Builtin(SlashCommand::Model)))
@@ -287,6 +313,43 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(inserted, expected);
+    }
+
+    #[test]
+    fn custom_commands_resolve_after_builtins_and_service_tiers() {
+        let custom = |name: &str| {
+            Arc::new(
+                parse_custom_command(name, "body", CustomCommandSource::Bundled)
+                    .expect("valid custom command"),
+            )
+        };
+        let tier = ServiceTierCommand {
+            id: "priority".to_string(),
+            name: "fast".to_string(),
+            description: "fastest inference".to_string(),
+        };
+        let customs = vec![custom("video"), custom("fast"), custom("review")];
+        let flags = all_enabled_flags();
+        let tiers = from_ref(&tier);
+
+        assert_eq!(
+            find_slash_command("video", flags, tiers, &customs),
+            Some(SlashCommandItem::Custom(customs[0].clone()))
+        );
+        assert_eq!(
+            find_slash_command("review", flags, tiers, &customs),
+            Some(SlashCommandItem::Builtin(SlashCommand::Review))
+        );
+        assert_eq!(
+            find_slash_command("fast", flags, tiers, &customs),
+            Some(SlashCommandItem::ServiceTier(tier.clone()))
+        );
+        let custom_items = commands_for_input(flags, tiers, &customs)
+            .into_iter()
+            .filter(|item| matches!(item, SlashCommandItem::Custom(_)))
+            .map(|item| item.command().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(custom_items, vec!["video".to_string(), "fast".to_string()]);
     }
 
     #[test]
@@ -348,6 +411,7 @@ mod tests {
                 SlashCommand::Status,
                 SlashCommand::Daemon,
                 SlashCommand::Warnings,
+                SlashCommand::Commands,
                 SlashCommand::Pwd,
                 SlashCommand::Usage,
             ]
@@ -381,7 +445,7 @@ mod tests {
         };
 
         assert_eq!(
-            find_slash_command("fast", flags, from_ref(&command)),
+            find_slash_command("fast", flags, from_ref(&command), &[]),
             Some(SlashCommandItem::ServiceTier(command))
         );
     }

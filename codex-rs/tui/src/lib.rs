@@ -187,6 +187,7 @@ mod notifications;
 mod npm_registry;
 pub(crate) mod onboarding;
 mod oss_selection;
+mod overmind;
 mod pager_overlay;
 mod projectless;
 pub(crate) mod public_widgets;
