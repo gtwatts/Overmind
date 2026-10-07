@@ -46,10 +46,24 @@ const PIPELINE_DEFINITION_FILE: &str = "pipeline.yaml";
 const PIPELINE_GUIDE_FILE: &str = "PIPELINE.md";
 
 /// Commands compiled into the binary. User and project files with the same name override them.
-const BUNDLED_COMMANDS: &[(&str, &str)] = &[(
-    "video",
-    include_str!("../../assets/overmind/commands/video.md"),
-)];
+const BUNDLED_COMMANDS: &[(&str, &str)] = &[
+    (
+        "examples",
+        include_str!("../../assets/overmind/commands/examples.md"),
+    ),
+    (
+        "photocraft",
+        include_str!("../../assets/overmind/commands/photocraft.md"),
+    ),
+    (
+        "video",
+        include_str!("../../assets/overmind/commands/video.md"),
+    ),
+    (
+        "whiteboard",
+        include_str!("../../assets/overmind/commands/whiteboard.md"),
+    ),
+];
 
 /// Where a custom command was loaded from.
 #[derive(Clone, Debug, PartialEq, Eq)]

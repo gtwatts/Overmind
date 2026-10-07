@@ -35,6 +35,13 @@ fn command(name: &str, body: &str) -> CustomCommand {
     }
 }
 
+fn bundled() -> Vec<(String, CustomCommandSource)> {
+    ["examples", "photocraft", "video", "whiteboard"]
+        .into_iter()
+        .map(|name| (name.to_string(), CustomCommandSource::Bundled))
+        .collect()
+}
+
 fn names(discovery: &CustomCommandDiscovery) -> Vec<(String, CustomCommandSource)> {
     discovery
         .commands
@@ -154,7 +161,10 @@ fn discovery_applies_precedence_and_skips_bad_files() {
                 "deploy".to_string(),
                 CustomCommandSource::Project(project_deploy)
             ),
+            ("examples".to_string(), CustomCommandSource::Bundled),
+            ("photocraft".to_string(), CustomCommandSource::Bundled),
             ("video".to_string(), CustomCommandSource::User(user_video)),
+            ("whiteboard".to_string(), CustomCommandSource::Bundled),
         ]
     );
     assert_eq!(
@@ -170,14 +180,11 @@ fn discovery_applies_precedence_and_skips_bad_files() {
 }
 
 #[test]
-fn discovery_without_files_returns_bundled_video() {
+fn discovery_without_files_returns_bundled_commands() {
     let tmp = TempDir::new().expect("tempdir");
     let discovery = discover_custom_commands(&test_env(tmp.path()));
 
-    assert_eq!(
-        names(&discovery),
-        vec![("video".to_string(), CustomCommandSource::Bundled)]
-    );
+    assert_eq!(names(&discovery), bundled());
     assert_eq!(discovery.warnings, Vec::<String>::new());
 }
 
@@ -191,10 +198,7 @@ fn untrusted_projects_do_not_contribute_commands() {
 
     let untrusted = CustomCommandEnv::resolve(&codex_home, &repo, ProjectTrust::NotTrusted);
     assert_eq!(untrusted.project_commands_dirs, Vec::<PathBuf>::new());
-    assert_eq!(
-        names(&discover_custom_commands(&untrusted)),
-        vec![("video".to_string(), CustomCommandSource::Bundled)]
-    );
+    assert_eq!(names(&discover_custom_commands(&untrusted)), bundled());
 
     let trusted = CustomCommandEnv::resolve(&codex_home, &repo, ProjectTrust::Trusted);
     assert_eq!(
@@ -299,5 +303,66 @@ fn bundled_video_command_expands_brief_and_context() {
     assert!(
         expanded.contains("  - blender-motion-graphics (pipeline not found; skip it)"),
         "{expanded}"
+    );
+}
+
+#[test]
+fn bundled_commands_declare_their_skills_and_pipelines() {
+    let tmp = TempDir::new().expect("tempdir");
+    let discovery = discover_custom_commands(&test_env(tmp.path()));
+    let declared: Vec<(String, Vec<String>, Vec<String>, bool)> = discovery
+        .commands
+        .iter()
+        .map(|command| {
+            (
+                command.name.clone(),
+                command.skills.clone(),
+                command.pipelines.clone(),
+                command.argument_hint.is_some(),
+            )
+        })
+        .collect();
+
+    let strings = |values: &[&str]| -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    };
+    assert_eq!(
+        declared,
+        vec![
+            ("examples".to_string(), Vec::new(), Vec::new(), true),
+            (
+                "photocraft".to_string(),
+                strings(&["photocraft"]),
+                Vec::new(),
+                true
+            ),
+            (
+                "video".to_string(),
+                strings(&[
+                    "photocraft",
+                    "blender",
+                    "remotion-video-production",
+                    "ffmpeg-skill"
+                ]),
+                strings(&[
+                    "blender-motion-graphics",
+                    "storyboard-pipeline-creator",
+                    "high-end-whiteboard"
+                ]),
+                true
+            ),
+            (
+                "whiteboard".to_string(),
+                strings(&[
+                    "high-end-whiteboard",
+                    "photocraft",
+                    "imagemagick",
+                    "whiteboard-animator",
+                    "remotion-video-production"
+                ]),
+                strings(&["high-end-whiteboard"]),
+                true
+            ),
+        ]
     );
 }
