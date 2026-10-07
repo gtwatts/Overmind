@@ -301,6 +301,7 @@ impl ChatWidget {
     pub(crate) fn refresh_status_surfaces(&mut self) {
         self.bottom_pane
             .set_luna_reserve_active(self.current_model() == LUNA_RESERVE_MODEL);
+        self.overmind_hud_sync_badge();
         let selections = self.status_surface_selections();
         self.warn_invalid_status_line_items_once(&selections.invalid_status_line_items);
         self.warn_invalid_terminal_title_items_once(&selections.invalid_terminal_title_items);

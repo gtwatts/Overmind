@@ -204,6 +204,7 @@ impl ChatWidget {
     }
 
     pub(super) fn on_agent_message_delta(&mut self, delta: String) {
+        self.overmind_hud_event(crate::overmind::hud::HudEvent::Responding);
         self.handle_streaming_delta(delta);
     }
 
@@ -307,6 +308,7 @@ impl ChatWidget {
     pub(super) fn on_agent_reasoning_delta(&mut self, delta: String) {
         // Accumulate the current reasoning block for history and activity text.
         self.reasoning_buffer.push_str(&delta);
+        self.overmind_hud_event(crate::overmind::hud::HudEvent::Thinking);
 
         if self.safety_buffering_is_waiting() {
             return;

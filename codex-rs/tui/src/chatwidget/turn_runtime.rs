@@ -80,6 +80,7 @@ impl ChatWidget {
         self.input_queue.user_turn_pending_start = false;
         self.reset_safety_buffering_for_turn_start();
         self.turn_lifecycle.start(Instant::now());
+        self.overmind_hud_turn_started();
         self.transcript.reset_turn_flags();
         self.adaptive_chunking.reset();
         if self.plan_stream_controller.take().is_some() {
@@ -162,6 +163,7 @@ impl ChatWidget {
             ));
         }
         self.turn_runtime_metrics = RuntimeMetricsSummary::default();
+        self.overmind_hud_turn_finished(from_replay);
         if !from_replay {
             self.request_status_line_branch_refresh();
             self.request_status_line_git_summary_refresh();
@@ -581,6 +583,7 @@ impl ChatWidget {
             })
             .count();
         self.transcript.last_plan_progress = (total > 0).then_some((completed, total));
+        self.overmind_hud_plan(&update);
         self.refresh_status_surfaces();
         self.add_to_history(history_cell::new_plan_update(update));
     }

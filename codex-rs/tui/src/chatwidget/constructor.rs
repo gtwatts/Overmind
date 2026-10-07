@@ -307,6 +307,7 @@ impl ChatWidget {
             .set_collaboration_modes_enabled(/*enabled*/ true);
         widget.sync_service_tier_commands();
         widget.sync_custom_commands();
+        widget.overmind_hud_init();
         widget.sync_worktrees_enabled();
         widget.sync_plugins_command_enabled();
         widget.sync_goal_command_enabled();

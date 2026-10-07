@@ -288,6 +288,7 @@ mod input_restore;
 mod input_submission;
 mod interrupts;
 mod overmind_commands;
+mod overmind_hud;
 mod questions;
 mod startup_submission;
 use self::interrupts::InterruptManager;
@@ -1116,6 +1117,7 @@ impl ChatWidget {
                 self.bottom_pane
                     .set_context_window(/*percent*/ None, /*used_tokens*/ None);
                 self.token_info = None;
+                self.overmind_hud_sync_context();
             }
         }
     }
@@ -1128,6 +1130,7 @@ impl ChatWidget {
         let used_tokens = self.context_used_tokens(&info, percent.is_some());
         self.bottom_pane.set_context_window(percent, used_tokens);
         self.token_info = Some(info);
+        self.overmind_hud_sync_context();
     }
 
     fn context_remaining_percent(&self, info: &TokenUsageInfo) -> Option<i64> {

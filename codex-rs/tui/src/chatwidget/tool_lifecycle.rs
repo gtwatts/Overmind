@@ -9,6 +9,9 @@ use codex_utils_path_uri::LegacyAppPathString;
 
 impl ChatWidget {
     pub(super) fn on_patch_apply_begin(&mut self, changes: HashMap<PathBuf, FileChange>) {
+        self.overmind_hud_event(crate::overmind::hud::HudEvent::PatchStarted {
+            files: changes.len(),
+        });
         self.add_to_history(history_cell::new_patch_event(changes, &self.config.cwd));
     }
 
@@ -19,6 +22,7 @@ impl ChatWidget {
     }
 
     pub(super) fn on_image_generation_begin(&mut self) {
+        self.overmind_hud_event(crate::overmind::hud::HudEvent::ImageGenerationStarted);
         self.flush_answer_stream_with_separator();
         if self.bottom_pane.is_task_running() {
             self.bottom_pane.ensure_status_indicator();
@@ -51,6 +55,9 @@ impl ChatWidget {
     }
 
     pub(super) fn on_mcp_tool_call_started(&mut self, item: ThreadItem) {
+        if let ThreadItem::McpToolCall { server, tool, .. } = &item {
+            self.overmind_hud_event(crate::overmind::hud::HudEvent::McpStarted { server, tool });
+        }
         self.defer_or_handle(
             item,
             InterruptManager::push_item_started,
@@ -59,6 +66,7 @@ impl ChatWidget {
     }
 
     pub(super) fn on_mcp_tool_call_completed(&mut self, item: ThreadItem) {
+        self.overmind_hud_event(crate::overmind::hud::HudEvent::ToolFinished);
         self.defer_or_handle(
             item,
             InterruptManager::push_item_completed,
@@ -67,6 +75,7 @@ impl ChatWidget {
     }
 
     pub(super) fn on_web_search_begin(&mut self, call_id: String) {
+        self.overmind_hud_event(crate::overmind::hud::HudEvent::WebSearchStarted);
         self.flush_answer_stream_with_separator();
         self.flush_active_cell();
         self.transcript.active_cell = Some(Box::new(history_cell::new_active_web_search_call(

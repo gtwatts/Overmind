@@ -7,6 +7,7 @@ use super::*;
 
 impl ChatWidget {
     pub(super) fn on_exec_approval_request(&mut self, _id: String, ev: ExecApprovalRequestEvent) {
+        self.overmind_hud_event(crate::overmind::hud::HudEvent::ApprovalRequested);
         self.defer_or_handle(
             ev,
             InterruptManager::push_exec_approval,
@@ -19,6 +20,7 @@ impl ChatWidget {
         _id: String,
         ev: ApplyPatchApprovalRequestEvent,
     ) {
+        self.overmind_hud_event(crate::overmind::hud::HudEvent::ApprovalRequested);
         self.defer_or_handle(
             ev,
             InterruptManager::push_apply_patch_approval,

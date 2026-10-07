@@ -11,6 +11,9 @@ impl ChatWidget {
                 ..
             }
         );
+        if started && let ThreadItem::DynamicToolCall { tool, .. } = &item {
+            self.overmind_hud_event(crate::overmind::hud::HudEvent::DynamicToolStarted(tool));
+        }
         self.defer_or_handle(
             item,
             |interrupts, item| {

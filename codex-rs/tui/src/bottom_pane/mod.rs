@@ -286,6 +286,9 @@ pub(crate) struct BottomPane {
     /// input state is retained when the view is closed.
     composer: ChatComposer,
 
+    /// Overmind HUD row rendered above the composer.
+    overmind_hud: crate::overmind::hud::HudState,
+
     /// Stack of views displayed instead of the composer (e.g. popups/modals).
     view_stack: Vec<Box<dyn BottomPaneView>>,
     warnings_view: Option<warnings_view::WarningsView>,
@@ -390,6 +393,7 @@ impl BottomPane {
             is_task_running: false,
             status: None,
             hook_status_message: None,
+            overmind_hud: Default::default(),
             inline_banner: None,
             status_timer: crate::status_indicator_widget::StatusTimer::default(),
             unified_exec_footer: UnifiedExecFooter::new(),
@@ -647,6 +651,11 @@ impl BottomPane {
         &self,
     ) -> &crate::overmind::custom_commands::CustomCommandDiscovery {
         self.composer.custom_command_discovery()
+    }
+
+    pub(crate) fn overmind_hud_mut(&mut self) -> &mut crate::overmind::hud::HudState {
+        self.request_redraw();
+        &mut self.overmind_hud
     }
 
     /// Set where Overmind custom commands are discovered, then rescan them.
@@ -2383,6 +2392,12 @@ impl BottomPane {
                 flex.into()
             };
             flex2.push(/*flex*/ 1, RenderableItem::Owned(above_composer));
+            flex2.push(
+                /*flex*/ 0,
+                RenderableItem::Owned(Box::new(
+                    self.overmind_hud.row(self.is_task_running, Instant::now()),
+                )),
+            );
             let composer: RenderableItem<'_> = if let Some(questions) = question_editor {
                 RenderableItem::Borrowed(questions.as_ref())
             } else if options.max_height.is_none()
@@ -2509,6 +2524,8 @@ impl Renderable for BottomPane {
 mod tests {
     #[path = "actionable_banner_tests.rs"]
     mod actionable_banner_tests;
+    #[path = "overmind_hud_tests.rs"]
+    mod overmind_hud_tests;
     #[path = "picker_hint_tests.rs"]
     mod picker_hint_tests;
 

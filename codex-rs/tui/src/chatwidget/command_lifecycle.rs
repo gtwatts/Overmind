@@ -30,6 +30,9 @@ impl ChatWidget {
         else {
             return;
         };
+        if !is_unified_exec_source(*source) || *source == ExecCommandSource::UnifiedExecStartup {
+            self.overmind_hud_event(crate::overmind::hud::HudEvent::CommandStarted(command));
+        }
         let (_command, parsed_cmd) = command_execution_command_and_parsed(command, command_actions);
         self.flush_answer_stream_with_separator();
         if is_unified_exec_source(*source) {
@@ -133,6 +136,7 @@ impl ChatWidget {
     }
 
     pub(super) fn on_command_execution_completed(&mut self, item: ThreadItem) {
+        self.overmind_hud_event(crate::overmind::hud::HudEvent::ToolFinished);
         let ThreadItem::CommandExecution {
             id,
             process_id,
