@@ -5,8 +5,8 @@ It stays a thin, rebase-friendly layer on top of upstream Codex and adds the thi
 production work needs every day: video jobs, repeatable multi-stage pipelines, and a terminal UI
 that shows what is going on.
 
-The repository is **private while Overmind is tested in daily use**. It may be open-sourced later,
-once it has proven itself.
+The canonical public repository is [gtwatts/Overmind](https://github.com/gtwatts/Overmind).
+Use its default branch, `overmind/main`, for Overmind; `main` remains the upstream Codex mirror.
 
 ## Vision
 
@@ -106,7 +106,7 @@ ability to inspect and re-run a stage. M2 ports the format already used by the
 - `PIPELINE.md`: the human guide, domain notes and resume instructions;
 - optional `prompts/`, `templates/`, `validators/` folders.
 
-Shipped on `overmind/m2-pipelines` (stacked on `overmind/m3-tui`):
+Integrated on `overmind/main` (originally developed on `overmind/m2-pipelines`):
 
 1. **`codex-rs/overmind-pipelines` crate.** It reads both dialects found on watts:
    - Codex-native (gordon-workflows plugin): JSON text, explicit `dependsOn`, `actionHint`.
@@ -239,10 +239,10 @@ Overmind's own sessions, not the stock daemon's.
 
 | Milestone | Scope | Status |
 | --- | --- | --- |
-| M1 | User-defined slash commands, bundled `/video` `/whiteboard` `/photocraft` `/examples`, skill attachment, live reload, `/commands`, tests | done (on `overmind/next`) |
-| Extra | Built-in Cursor provider (`overmind-cursor`) | shipped (on `overmind/next`) |
-| M2 | Native pipelines (port `pipeline.yaml` + `PIPELINE.md`), run state, inspect/re-run | in review on `overmind/m2-pipelines` (stacked on m3) |
-| M3 | TUI visuals: HUD (activity, plan, context, limits, badge), turn summary, shared widgets | first set in review on `overmind/m3-tui`; pipeline panel follows M2 |
+| M1 | User-defined slash commands, bundled `/video` `/whiteboard` `/photocraft` `/examples`, skill attachment, live reload, `/commands`, tests | integrated on `overmind/main` |
+| Extra | Built-in Cursor provider (`overmind-cursor`) | integrated on `overmind/main` |
+| M2 | Native pipelines (port `pipeline.yaml` + `PIPELINE.md`), run state, inspect/re-run | integrated on `overmind/main` |
+| M3 | TUI visuals: HUD (activity, plan, context, limits, badge), turn summary, shared widgets | first set integrated on `overmind/main`; further panels remain planned |
 | M4 | Carry over Todd's setup | planned |
 
 ### M4: carry-over of Todd's current Codex setup
@@ -265,25 +265,28 @@ Overmind's own sessions, not the stock daemon's.
 Remotes in the local clone (`~/Documents/projects/Overmind`):
 
 - `upstream` = `https://github.com/openai/codex.git` (fetch only; push is disabled);
-- `origin` = `https://github.com/gtwatts/Overmind.git` (private; pushes go over SSH because the
+- `origin` = `https://github.com/gtwatts/Overmind.git` (public; pushes go over SSH because the
   `gh` token has no `workflow` scope).
 
 Branches:
 
 - `main` mirrors `upstream/main` exactly. Never commit on it.
 - `overmind/main` is Overmind's trunk (the default branch on GitHub).
-- `overmind/next` is the integration branch (M1 + the Cursor provider) that new work builds on
-  and that will eventually replace the stock Codex install.
-- `overmind/<milestone>-<topic>` feature branches are reviewed by Todd, then merged into
-  `overmind/main`.
+- `overmind/next` and the existing milestone branches preserve earlier development history;
+  their active work has been integrated into `overmind/main`.
+- Start new `overmind/<milestone>-<topic>` feature branches from `overmind/main`, review them,
+  then merge them into `overmind/main`.
 - `clef-context-filter` is an archived experiment; do not build on it.
+
+Keep one local project directory, `~/Documents/projects/Overmind`. Demo assets live in
+`docs/overmind/media/`. See [the consolidation record](docs/overmind/consolidation.md).
 
 Sync routine:
 
 ```bash
 git fetch upstream
 git checkout main && git merge --ff-only upstream/main && git push origin main
-git checkout overmind/main && git rebase main   # or merge, if the branch is shared
+git checkout overmind/main && git merge main
 ```
 
 Rules that keep conflicts small:

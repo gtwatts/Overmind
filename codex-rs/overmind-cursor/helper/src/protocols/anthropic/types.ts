@@ -60,6 +60,10 @@ export interface UsageView {
   reasoning_tokens?: number;
   usage_deferred?: boolean;
   usage_status?: "sdk" | "unavailable" | "deferred";
+  /** Overmind: Cursor run totals when input/output are last-step estimates. */
+  run_input_tokens?: number;
+  run_output_tokens?: number;
+  model_steps?: number;
 }
 
 export interface AssistantTurn {

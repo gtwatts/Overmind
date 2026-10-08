@@ -1477,7 +1477,7 @@ export class RunCoordinator {
       }
       if (boundary.type === "final") {
         ledger.persistObserveOffset(runId, boundary.turn.messageId, generation);
-        const usage = toLedgerUsage(boundary.turn.usage) ?? { inputTokens: 0, outputTokens: 0 };
+        const usage = toLedgerUsage(boundary.runUsage ?? boundary.turn.usage) ?? { inputTokens: 0, outputTokens: 0 };
         ledger.finalizeRunWithReceipt({
           runId,
           generation,

@@ -1,14 +1,15 @@
 import type { Clock } from "../clock.js";
 import { emptyTurn, sdkFailure, timeoutError, upstreamError } from "../errors.js";
 import { messageId } from "../ids.js";
-import type { AnthropicContentBlock, AssistantTurn } from "../protocols/anthropic/types.js";
+import type { AnthropicContentBlock, AssistantTurn, UsageView } from "../protocols/anthropic/types.js";
 import type { SdkDeltaUpdate, SdkRun, SdkStreamEvent } from "../sdk/port.js";
-import { StepUsageTracker } from "./step-usage.js";
+import { resultChars, StepUsageTracker } from "./step-usage.js";
 import type { PendingCall, Session } from "./session.js";
+import { fromSdkUsage } from "./usage.js";
 
 export type PumpBoundary =
   | { type: "tools"; turn: AssistantTurn }
-  | { type: "final"; turn: AssistantTurn }
+  | { type: "final"; turn: AssistantTurn; runUsage?: UsageView }
   | { type: "error"; error: unknown };
 
 export type DeltaRecord = { kind: "text" | "thinking"; text: string };
@@ -38,7 +39,7 @@ export class EventPump {
   private preferOnDelta = false;
   private segmentMessageId = messageId();
   /** Overmind: per-step usage so Codex sees context size, not run totals. */
-  private readonly stepUsage = new StepUsageTracker();
+  private readonly stepUsage: StepUsageTracker;
 
   constructor(
     private readonly session: Session,
@@ -46,7 +47,9 @@ export class EventPump {
     private readonly clock: Clock,
     private readonly settleMs: number,
     private readonly firstEventTimeoutMs: number,
-  ) {}
+  ) {
+    this.stepUsage = new StepUsageTracker(session.contextTokens);
+  }
 
   start(): void {
     if (this.consumer) return;
@@ -97,6 +100,11 @@ export class EventPump {
     this.session.hasSemanticOutput = true;
     this.session.sawToolBatch = true;
     this.openBatch.push(call);
+    this.stepUsage.noteOutput(call.name.length + resultChars(call.input));
+    void call.promise.then(
+      (result) => this.stepUsage.noteInput(resultChars(result)),
+      () => undefined,
+    );
     const generation = ++this.settleGeneration;
     const flush = () => {
       if (generation !== this.settleGeneration || this.finished) return;
@@ -125,8 +133,7 @@ export class EventPump {
   ingestDelta(update: SdkDeltaUpdate): void {
     if (update.type === "turn-ended") {
       this.firstEvent = true;
-      // Overmind: per-step usage drives Codex's context %; run.wait() keeps the total.
-      this.stepUsage.record(update.usage);
+      // The SDK reports this once per run with the run total; see step-usage.ts.
       return;
     }
     if (update.type !== "text-delta" && update.type !== "thinking-delta") return;
@@ -134,6 +141,7 @@ export class EventPump {
     this.preferOnDelta = true;
     this.firstEvent = true;
     this.session.hasSemanticOutput = true;
+    this.stepUsage.noteOutput(update.text.length);
     if (update.type === "thinking-delta") {
       this.thinking += update.text;
       this.deltaHistory.push({ kind: "thinking", text: update.text });
@@ -188,15 +196,22 @@ export class EventPump {
         return;
       }
       this.session.hasSemanticOutput = true;
+      const usage = this.stepUsage.forFinal(result.usage);
+      if (usage.contextTokens !== undefined) this.session.contextTokens = usage.contextTokens;
+      if (process.env.OVERMIND_USAGE_DEBUG === "1") {
+        console.log(JSON.stringify({ msg: "overmind run usage", total: result.usage, reported: usage.view }));
+      }
       this.publish({
         type: "final",
+        // Keep exact SDK totals for the ledger while the protocol reports context occupancy.
+        runUsage: fromSdkUsage(result.usage),
         turn: {
           messageId: this.segmentMessageId,
           sessionId: this.session.sessionId,
           model: this.session.modelId,
           stopReason: "end_turn",
           blocks,
-          usage: this.stepUsage.forFinal(result.usage),
+          usage: usage.view,
         },
       });
     } catch (error) {
@@ -210,6 +225,9 @@ export class EventPump {
   private handle(event: SdkStreamEvent): void {
     if (this.preferOnDelta && (event.type === "thinking" || event.type === "assistant")) {
       return;
+    }
+    if ((event.type === "thinking" || event.type === "assistant") && event.text) {
+      this.stepUsage.noteOutput(event.text.length);
     }
     if (event.type === "thinking" && event.text) {
       this.thinking += event.text;

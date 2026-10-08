@@ -55,6 +55,8 @@ export class Session {
   readonly earlyCalls: PendingCall[] = [];
   replay?: ReplayRecord;
   usageConfirmed = false;
+  /** Overmind: estimated Cursor context size after the last completed run. */
+  contextTokens?: number;
   hasSemanticOutput = false;
   sawToolBatch = false;
   lastResultDigest?: string;

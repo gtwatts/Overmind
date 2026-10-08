@@ -261,15 +261,19 @@ test("single function_call continuation stays on the same SDK run", async () => 
   expect(outputOfType(final, "message")[0]?.content).toEqual([
     { type: "output_text", text: "sunny", annotations: [] },
   ]);
-  expect(final.usage).toMatchObject({
-    input_tokens: 11,
-    output_tokens: 5,
-    total_tokens: 16,
-    cache_creation_input_tokens: 4,
+  // Two model calls: lookup + its result add ~6 tokens before the final call.
+  expect(final.usage).toEqual({
+    input_tokens: 9,
+    output_tokens: 3,
+    total_tokens: 12,
+    cache_creation_input_tokens: 3,
     cache_read_input_tokens: 2,
     input_tokens_details: { cached_tokens: 2 },
-    output_tokens_details: { reasoning_tokens: 3 },
+    output_tokens_details: { reasoning_tokens: 2 },
     usage_status: "sdk",
+    run_input_tokens: 11,
+    run_output_tokens: 5,
+    model_steps: 2,
   });
   expect(ctx.sdk.agents.length).toBe(1);
   expect(ctx.sdk.agents[0]?.runs.length).toBe(1);

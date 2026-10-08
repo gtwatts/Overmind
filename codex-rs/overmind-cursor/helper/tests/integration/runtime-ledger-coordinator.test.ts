@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { RUNTIME_DB_FILENAME } from "../../src/core/runtime-ledger.js";
-import { api, closeTestApp, startTestApp, type TestContext } from "../helpers/app.js";
+import { api, closeTestApp, responsesWeatherTool, startTestApp, type TestContext } from "../helpers/app.js";
 
 let ctx: TestContext;
 
@@ -59,6 +59,68 @@ test("runtimeLedgerV2 claims one logical request and finalizes one receipt", asy
     runtimeProfile: "sdk",
     generation: run.generation,
   }).outcome).toBe("existing");
+});
+
+test("multi-call receipts preserve SDK run totals while Responses reports final-call context", async () => {
+  ctx = await startTestApp({
+    config: { runtimeLedgerV2: true },
+    sdk: {
+      scripts: [[
+        { type: "tools", calls: [{ name: "lookup", input: { q: "weather" } }] },
+        { type: "text", chunks: ["sunny"] },
+      ]],
+      finalUsage: {
+        inputTokens: 11,
+        outputTokens: 5,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 4,
+        reasoningTokens: 3,
+      },
+    },
+  });
+  const tools = [responsesWeatherTool()];
+  const first = await api(ctx, "/v1/responses", {
+    method: "POST",
+    body: JSON.stringify({ model: "composer-2.5", input: "weather?", tools }),
+  });
+  expect(first.status).toBe(200);
+  const toolTurn = (await first.json()) as {
+    output: Array<{ type: string; call_id?: string; name?: string; arguments?: string }>;
+  };
+  const call = toolTurn.output.find((item) => item.type === "function_call");
+  expect(call?.call_id).toBeTruthy();
+  const second = await api(ctx, "/v1/responses", {
+    method: "POST",
+    body: JSON.stringify({
+      model: "composer-2.5",
+      input: [
+        { type: "message", role: "user", content: "weather?" },
+        call,
+        { type: "function_call_output", call_id: call?.call_id, output: "72F" },
+      ],
+      tools,
+    }),
+  });
+  expect(second.status).toBe(200);
+  const final = (await second.json()) as { usage: Record<string, unknown> };
+  expect(final.usage).toMatchObject({
+    input_tokens: 9,
+    output_tokens: 3,
+    run_input_tokens: 11,
+    run_output_tokens: 5,
+    model_steps: 2,
+  });
+  const { ledger, run } = bound(ctx);
+  expect(run.state).toBe("finished");
+  expect(ledger.getReceiptByRunId(run.id)?.usage).toEqual({
+    inputTokens: 11,
+    outputTokens: 5,
+    cacheReadTokens: 2,
+    cacheWriteTokens: 4,
+    reasoningTokens: 3,
+  });
+  expect(ctx.sdk.agents[0]?.runs).toHaveLength(1);
+  expect(ctx.sdk.agents[0]?.runs[0]?.waitCalls).toBe(1);
 });
 
 test("duplicate reconnect reuses the claim and does not send again", async () => {

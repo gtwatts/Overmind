@@ -13,6 +13,9 @@ export interface ResponsesUsage {
   cache_read_input_tokens?: number;
   usage_deferred?: boolean;
   usage_status?: "sdk" | "unavailable" | "deferred";
+  run_input_tokens?: number;
+  run_output_tokens?: number;
+  model_steps?: number;
 }
 
 export function encodeResponsesUsage(turn: AssistantTurn): ResponsesUsage {
@@ -33,6 +36,9 @@ export function encodeResponsesUsage(turn: AssistantTurn): ResponsesUsage {
   }
   if (turn.usage.usage_deferred) usage.usage_deferred = true;
   if (turn.usage.usage_status) usage.usage_status = turn.usage.usage_status;
+  if (typeof turn.usage.run_input_tokens === "number") usage.run_input_tokens = turn.usage.run_input_tokens;
+  if (typeof turn.usage.run_output_tokens === "number") usage.run_output_tokens = turn.usage.run_output_tokens;
+  if (typeof turn.usage.model_steps === "number") usage.model_steps = turn.usage.model_steps;
   return usage;
 }
 

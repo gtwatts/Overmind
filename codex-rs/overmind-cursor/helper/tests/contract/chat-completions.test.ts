@@ -197,11 +197,12 @@ test("single tool continuation stays on the same SDK run", async () => {
   expect(second.status).toBe(200);
   expect(final.choices[0]?.finish_reason).toBe("stop");
   expect(final.choices[0]?.message.content).toBe("sunny");
+  // Two model calls: lookup + its result add ~6 tokens before the final call.
   expect(final.usage).toMatchObject({
-    prompt_tokens: 11,
-    completion_tokens: 5,
-    total_tokens: 16,
-    cache_creation_input_tokens: 4,
+    prompt_tokens: 9,
+    completion_tokens: 3,
+    total_tokens: 12,
+    cache_creation_input_tokens: 3,
     cache_read_input_tokens: 2,
     usage_status: "sdk",
   });

@@ -1,3 +1,37 @@
+# Overmind
+
+Overmind is a customized [OpenAI Codex CLI](https://github.com/openai/codex) with user-defined
+slash commands, native production pipelines, a terminal HUD, and a built-in Cursor provider.
+
+The canonical public repository is [gtwatts/Overmind](https://github.com/gtwatts/Overmind).
+Active development lives on the default branch, **`overmind/main`**. The `main` branch tracks
+upstream Codex; use `overmind/main` when cloning or building Overmind.
+
+## Build and run Overmind
+
+Install the Rust prerequisites in [the build guide](docs/install.md) and Node.js 22.19 or newer.
+Build the bundled Cursor helper before starting Overmind:
+
+```sh
+git clone --branch overmind/main https://github.com/gtwatts/Overmind.git
+cd Overmind/codex-rs/overmind-cursor/helper
+npm ci
+npm run build:server
+cd ../..
+cargo build -p codex-cli --bin codex
+./target/debug/codex
+```
+
+See [the Overmind guide](OVERMIND.md) for commands, configuration, provider setup, and roadmap;
+[demo captures](docs/overmind/media/README.md) for the HUD and pipelines; and
+[the consolidation record](docs/overmind/consolidation.md) for repository layout and recovery.
+
+The upstream installation instructions below install stock Codex. Use the source build above
+for Overmind's features.
+
+<details>
+<summary>Upstream Codex README</summary>
+
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
 <p align="center">
   <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
@@ -79,3 +113,5 @@ You can also use Codex with an API key, but this requires [additional setup](htt
 - [**Open source fund**](./docs/open-source-fund.md)
 
 This repository is licensed under the [Apache-2.0 License](LICENSE).
+
+</details>

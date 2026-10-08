@@ -4,6 +4,21 @@ Investigated on 2026-10-07 (branch `overmind/m2-pipelines`). Numbers come from T
 session logs (read only), from request bodies captured with a local fake endpoint (no model
 call), and from **one** live `composer-2.5` turn used for an A/B check.
 
+## Current source status — October 8, 2026
+
+The original measurements below describe the earlier M2 build. The consolidated
+`overmind/main` now includes on-demand plugin tool loading and Cursor context estimates.
+The SDK's `turn-ended` update contains a whole-run total, so it cannot provide the per-step
+measurements proposed below. The helper estimates the last call's context from that total,
+the number of tool batches, and the content added between calls. This remains an estimate,
+not a tokenizer measurement. Exact SDK run totals, including cache and reasoning usage,
+remain available to internal ledger receipts; Responses usage also exposes raw run input and
+output totals alongside the context estimate.
+
+These paths have local unit and protocol contract coverage. The consolidation did not make
+new paid model calls, so the earlier live measurements should not be read as validation of
+the new implementation.
+
 ## Summary
 
 | Measurement | Input tokens |
@@ -70,7 +85,8 @@ plugins (see below), which also shrinks the tool list.
 | 3 | Report per-step usage. Attach each Cursor step's `turn-ended` usage to the Codex response it produced, and use the remainder for the final response, so the context gauge and auto-compaction see real occupancy | Correct context %; no premature compaction | low to medium (needs SDK event-order check, live test) | `overmind-cursor/helper/src/core/event-pump.ts` | proposed |
 | 4 | Make the 2% skills budget configurable per provider, or let `skill_search` cover left-out skills for Cursor | Silences the warning without adding tokens | low | `ext/skills` | proposed; prefer fix 1 first |
 
-None of the token fixes were implemented on this branch. Fix 1 is a change to Todd's
+None of the token fixes were implemented on the original M2 branch when this investigation
+was written; see the current source status above for subsequent work. Fix 1 is a change to Todd's
 configuration under `~/.codex`, which this work must not touch. Fixes 2 and 3 change the
 helper's protocol handling and need live turns to verify, so they are not low risk.
 
