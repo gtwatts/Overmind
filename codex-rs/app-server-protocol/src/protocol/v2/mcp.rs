@@ -335,6 +335,36 @@ pub struct McpToolCallProgressNotification {
     pub turn_id: String,
     pub item_id: String,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub progress: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub total: Option<f64>,
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::McpToolCallProgressNotification;
+
+    #[test]
+    fn progress_notification_accepts_message_only_and_round_trips_fractional_numbers() {
+        let old = serde_json::json!({"threadId": "thread", "turnId": "turn", "itemId": "call", "message": "Rendering"});
+        let mut progress: McpToolCallProgressNotification =
+            serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(progress.progress, None);
+        assert_eq!(progress.total, None);
+        assert_eq!(serde_json::to_value(&progress).unwrap(), old);
+        progress.progress = Some(0.5);
+        progress.total = Some(1.5);
+        let encoded = serde_json::to_value(&progress).unwrap();
+        assert_eq!(encoded["progress"], 0.5);
+        assert_eq!(encoded["total"], 1.5);
+        assert_eq!(
+            serde_json::from_value::<McpToolCallProgressNotification>(encoded).unwrap(),
+            progress
+        );
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema, TS)]

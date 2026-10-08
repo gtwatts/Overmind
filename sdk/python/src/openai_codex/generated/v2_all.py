@@ -2714,7 +2714,9 @@ class McpToolCallProgressNotification(BaseModel):
     )
     item_id: Annotated[str, Field(alias="itemId")]
     message: str
+    progress: float | None = None
     thread_id: Annotated[str, Field(alias="threadId")]
+    total: float | None = None
     turn_id: Annotated[str, Field(alias="turnId")]
 
 

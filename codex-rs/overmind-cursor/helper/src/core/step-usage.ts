@@ -17,7 +17,7 @@
 // added so far (when known); otherwise usage stays deferred as before.
 import type { SdkUsage } from "../sdk/port.js";
 import type { UsageView } from "../protocols/anthropic/types.js";
-import { deferredUsage, fromSdkUsage } from "./usage.js";
+import { deferredUsage, fromSdkUsage, totalInputTokens } from "./usage.js";
 
 const CHARS_PER_TOKEN = 4;
 
@@ -68,8 +68,21 @@ export class StepUsageTracker {
     const view = fromSdkUsage(runTotal);
     const steps = this.stepStarts.length;
     if (!runTotal) return { view };
-    if (steps <= 1) return { view, contextTokens: runTotal.inputTokens };
-    const total = runTotal.inputTokens;
+    // Keep exact SDK counters separate from the context estimate, even for one call.
+    view.run_input_tokens = runTotal.inputTokens;
+    view.run_output_tokens = runTotal.outputTokens;
+    view.model_steps = steps;
+    if (typeof view.cache_read_input_tokens === "number") {
+      view.run_cache_read_input_tokens = view.cache_read_input_tokens;
+    }
+    if (typeof view.cache_creation_input_tokens === "number") {
+      view.run_cache_creation_input_tokens = view.cache_creation_input_tokens;
+    }
+    if (typeof view.reasoning_tokens === "number") {
+      view.run_reasoning_output_tokens = view.reasoning_tokens;
+    }
+    const total = totalInputTokens(view);
+    if (steps <= 1) return { view, contextTokens: total };
     const startSum = this.stepStarts.reduce((sum, start) => sum + start, 0);
     const first = Math.max(0, Math.min(total / steps, (total - startSum) / steps));
     const last = Math.min(total, Math.round(first + this.stepStarts[steps - 1]!));
@@ -78,16 +91,20 @@ export class StepUsageTracker {
       ...view,
       input_tokens: last,
       output_tokens: Math.round(runTotal.outputTokens / steps),
-      run_input_tokens: runTotal.inputTokens,
-      run_output_tokens: runTotal.outputTokens,
-      model_steps: steps,
     };
     if (typeof view.cache_read_input_tokens === "number") {
-      estimated.cache_read_input_tokens = Math.round(view.cache_read_input_tokens * scale);
+      estimated.cache_read_input_tokens = Math.min(last, Math.round(view.cache_read_input_tokens * scale));
     }
     if (typeof view.cache_creation_input_tokens === "number") {
-      estimated.cache_creation_input_tokens = Math.round(view.cache_creation_input_tokens * scale);
+      estimated.cache_creation_input_tokens = Math.min(
+        last - (estimated.cache_read_input_tokens ?? 0),
+        Math.round(view.cache_creation_input_tokens * scale),
+      );
     }
+    // Preserve additive SDK/Anthropic components. OpenAI input includes all of them.
+    estimated.input_tokens = last
+      - (estimated.cache_read_input_tokens ?? 0)
+      - (estimated.cache_creation_input_tokens ?? 0);
     if (typeof view.reasoning_tokens === "number") {
       estimated.reasoning_tokens = Math.round(view.reasoning_tokens / steps);
     }

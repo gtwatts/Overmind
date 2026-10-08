@@ -38,6 +38,13 @@ export function fromSdkUsage(usage: SdkUsage | undefined): UsageView {
   return view;
 }
 
+/** SDK/Anthropic input excludes separately reported cache reads and writes. */
+export function totalInputTokens(usage: UsageView): number {
+  return usage.input_tokens
+    + (usage.cache_read_input_tokens ?? 0)
+    + (usage.cache_creation_input_tokens ?? 0);
+}
+
 /** Map protocol usage to ledger token ints. Deferred usage is omitted, never invented. */
 export function toLedgerUsage(usage: UsageView | undefined): LedgerUsage | undefined {
   if (!usage) return undefined;

@@ -199,11 +199,11 @@ test("single tool continuation stays on the same SDK run", async () => {
   expect(final.choices[0]?.message.content).toBe("sunny");
   // Two model calls: lookup + its result add ~6 tokens before the final call.
   expect(final.usage).toMatchObject({
-    prompt_tokens: 9,
+    prompt_tokens: 12,
     completion_tokens: 3,
-    total_tokens: 12,
+    total_tokens: 15,
     cache_creation_input_tokens: 3,
-    cache_read_input_tokens: 2,
+    cache_read_input_tokens: 1,
     usage_status: "sdk",
   });
   expect(ctx.sdk.agents.length).toBe(1);

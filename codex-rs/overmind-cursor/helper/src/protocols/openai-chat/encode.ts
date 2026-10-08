@@ -1,4 +1,5 @@
 import { chatCompletionId } from "../../ids.js";
+import { totalInputTokens } from "../../core/usage.js";
 import type { AnthropicContentBlock, AssistantTurn } from "../anthropic/types.js";
 import type { ChatFinishReason, ChatToolCall } from "./types.js";
 
@@ -17,7 +18,7 @@ export function encodeChatUsage(turn: AssistantTurn): {
   usage_deferred?: boolean;
   usage_status?: "sdk" | "unavailable" | "deferred";
 } {
-  const prompt = turn.usage.input_tokens;
+  const prompt = totalInputTokens(turn.usage);
   const completion = turn.usage.output_tokens;
   const usage: ReturnType<typeof encodeChatUsage> = {
     prompt_tokens: prompt,

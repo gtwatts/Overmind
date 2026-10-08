@@ -12,6 +12,7 @@
 pub(crate) mod activity;
 pub(crate) mod config;
 pub(crate) mod meter;
+mod pipeline_panel;
 mod render;
 pub(crate) mod segments;
 mod summary;
@@ -89,6 +90,20 @@ pub(crate) struct PipelineProgress {
     pub(crate) stages: Vec<(String, meter::StageStatus)>,
     /// Id of the stage running or waiting, if any.
     pub(crate) current: Option<String>,
+    pub(crate) details: Vec<PipelineStageDetail>,
+    pub(crate) paused: Option<String>,
+    pub(crate) paused_at_ms: Option<i64>,
+}
+
+/// Persisted stage information, independent of the current chat turn's clock.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PipelineStageDetail {
+    pub(crate) id: String,
+    pub(crate) status: meter::StageStatus,
+    pub(crate) started_at_ms: Option<i64>,
+    pub(crate) finished_at_ms: Option<i64>,
+    pub(crate) expected: Vec<String>,
+    pub(crate) recorded: Vec<String>,
 }
 
 impl PipelineProgress {
@@ -278,7 +293,42 @@ impl HudState {
             state: self,
             task_running,
             now,
+            wall_time_ms: chrono::Utc::now().timestamp_millis(),
         }
+    }
+
+    fn lines(
+        &self,
+        width: u16,
+        task_running: bool,
+        now: Instant,
+        wall_time_ms: i64,
+        height: u16,
+    ) -> Vec<Line<'static>> {
+        if height == 0 {
+            return Vec::new();
+        }
+        let hud = self.line(width, task_running, now);
+        let panel_height = height.saturating_sub(u16::from(hud.is_some())).min(5);
+        let mut lines = if self.config.hud && self.config.pipeline && self.config.pipeline_panel {
+            self.pipeline
+                .as_ref()
+                .map(|pipeline| {
+                    pipeline_panel::lines(
+                        pipeline,
+                        width,
+                        panel_height,
+                        wall_time_ms,
+                        self.glyphs,
+                        self.palette,
+                    )
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        lines.extend(hud);
+        lines
     }
 }
 
@@ -293,11 +343,12 @@ fn usage_delta(start: &TokenUsage, end: &TokenUsage) -> TokenUsage {
     }
 }
 
-/// The HUD row as a bottom-pane renderable: one row tall when there is something to show.
+/// The HUD plus a bounded pipeline panel; constrained areas keep the compact HUD.
 pub(crate) struct HudRow<'a> {
     state: &'a HudState,
     task_running: bool,
     now: Instant,
+    wall_time_ms: i64,
 }
 
 impl Renderable for HudRow<'_> {
@@ -305,17 +356,26 @@ impl Renderable for HudRow<'_> {
         if area.is_empty() {
             return;
         }
-        if let Some(line) = self.state.line(area.width, self.task_running, self.now) {
-            line.render(area, buf);
+        for (index, line) in self
+            .state
+            .lines(
+                area.width,
+                self.task_running,
+                self.now,
+                self.wall_time_ms,
+                area.height,
+            )
+            .into_iter()
+            .enumerate()
+        {
+            line.render(Rect::new(area.x, area.y + index as u16, area.width, 1), buf);
         }
     }
 
     fn desired_height(&self, width: u16) -> u16 {
-        u16::from(
-            self.state
-                .line(width, self.task_running, self.now)
-                .is_some(),
-        )
+        self.state
+            .lines(width, self.task_running, self.now, self.wall_time_ms, 6)
+            .len() as u16
     }
 }
 

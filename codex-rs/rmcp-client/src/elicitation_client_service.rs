@@ -94,6 +94,14 @@ impl Drop for PendingVerification {
 }
 
 impl ElicitationClientService {
+    pub(crate) fn with_progress(
+        mut self,
+        progress: crate::tool_progress::ProgressRegistry,
+    ) -> Self {
+        self.handler.progress = progress;
+        self
+    }
+
     pub(crate) fn new(
         client_info: ClientInfo,
         send_elicitation: SendElicitation,
@@ -300,6 +308,18 @@ impl Service<RoleClient> for ElicitationClientService {
         notification: ServerNotification,
         context: NotificationContext<RoleClient>,
     ) -> Result<(), rmcp::ErrorData> {
+        if let ServerNotification::CustomNotification(notification) = &notification
+            && notification.method == "notifications/progress"
+        {
+            // Deserialize directly: the pinned SDK's flattened enum can reject fractional
+            // numbers under serde_json arbitrary_precision and fall back to custom here.
+            if let Some(params) = notification.params.clone()
+                && let Ok(params) = serde_json::from_value(params)
+            {
+                self.handler.progress.route(params);
+            }
+            return Ok(());
+        }
         if let ServerNotification::CancelledNotification(cancelled) = &notification
             && let Some(request_id) = cancelled.params.request_id.as_ref()
         {

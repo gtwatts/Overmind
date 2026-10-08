@@ -2929,8 +2929,22 @@
         "message": {
           "type": "string"
         },
+        "progress": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
         "threadId": {
           "type": "string"
+        },
+        "total": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "turnId": {
           "type": "string"

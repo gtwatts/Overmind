@@ -993,6 +993,20 @@ pub(crate) async fn apply_bespoke_event_handling(
             // App-server v2 receives TurnItem lifecycle instead, and dispatches dynamic tool
             // requests from DynamicToolCall starts.
         }
+        EventMsg::McpToolCallProgress(progress) => {
+            outgoing
+                .send_server_notification(ServerNotification::McpToolCallProgress(
+                    codex_app_server_protocol::McpToolCallProgressNotification {
+                        thread_id: conversation_id.to_string(),
+                        turn_id: event_turn_id.clone(),
+                        item_id: progress.call_id,
+                        message: progress.message,
+                        progress: progress.progress,
+                        total: progress.total,
+                    },
+                ))
+                .await;
+        }
         EventMsg::McpToolCallBegin(_) | EventMsg::McpToolCallEnd(_) => {
             // Deprecated MCP tool-call events are still fanned out for raw-event and rollout
             // compatibility consumers.

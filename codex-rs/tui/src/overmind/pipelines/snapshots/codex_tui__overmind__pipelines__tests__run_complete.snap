@@ -6,4 +6,4 @@ expression: fx.text(&effects)
 ✓ render done · 1 output recorded
 ✓ mini-whiteboard complete  4/4 stages · run <run-1>
   deliverables: production/render.mp4
-hud: cleared
+hud: mini-whiteboard 4/4 current=None

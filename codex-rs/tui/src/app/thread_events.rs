@@ -923,6 +923,8 @@ mod tests {
                     turn_id: "turn-1".to_string(),
                     item_id: "mcp-1".to_string(),
                     message: large_payload.clone(),
+                    progress: None,
+                    total: None,
                 },
             ));
             store.push_notification_ref(&ServerNotification::ThreadRealtimeOutputAudioDelta(

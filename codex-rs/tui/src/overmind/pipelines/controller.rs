@@ -300,7 +300,11 @@ impl PipelineSession {
         let run = self.target_run(ctx, run_id, /*unfinished*/ false)?;
         let views = run.views();
         effects.push(PipelineEffect::Lines(render::run_card(&run, &views, ctx)));
-        if self.run_dir.as_deref() == Some(run.dir.as_path()) {
+        if self
+            .run_dir
+            .as_deref()
+            .is_none_or(|dir| dir == run.dir.as_path())
+        {
             effects.push(PipelineEffect::Progress(progress(&run, &views)));
         }
         Ok(())
@@ -418,7 +422,7 @@ impl PipelineSession {
                     run.state.paused = None;
                     save(run)?;
                     effects.push(PipelineEffect::Lines(render::complete_lines(run, ctx)));
-                    effects.push(PipelineEffect::Progress(None));
+                    effects.push(PipelineEffect::Progress(progress(run, &views)));
                     self.run_dir = None;
                     return Ok(());
                 }

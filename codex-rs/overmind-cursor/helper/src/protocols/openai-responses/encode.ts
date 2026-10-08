@@ -1,4 +1,5 @@
 import { responseId } from "../../ids.js";
+import { totalInputTokens } from "../../core/usage.js";
 import type { AnthropicContentBlock, AssistantTurn } from "../anthropic/types.js";
 import type { ResponsesStatus } from "./types.js";
 import { encodeToolSearchCallItem } from "./tool-search.js";
@@ -15,6 +16,9 @@ export interface ResponsesUsage {
   usage_status?: "sdk" | "unavailable" | "deferred";
   run_input_tokens?: number;
   run_output_tokens?: number;
+  run_cache_read_input_tokens?: number;
+  run_cache_creation_input_tokens?: number;
+  run_reasoning_output_tokens?: number;
   model_steps?: number;
 }
 
@@ -22,9 +26,9 @@ export function encodeResponsesUsage(turn: AssistantTurn): ResponsesUsage {
   const cached =
     typeof turn.usage.cache_read_input_tokens === "number" ? turn.usage.cache_read_input_tokens : 0;
   const usage: ResponsesUsage = {
-    input_tokens: turn.usage.input_tokens,
+    input_tokens: totalInputTokens(turn.usage),
     output_tokens: turn.usage.output_tokens,
-    total_tokens: turn.usage.input_tokens + turn.usage.output_tokens,
+    total_tokens: totalInputTokens(turn.usage) + turn.usage.output_tokens,
     input_tokens_details: { cached_tokens: cached },
     output_tokens_details: { reasoning_tokens: turn.usage.reasoning_tokens ?? 0 },
   };
@@ -38,6 +42,15 @@ export function encodeResponsesUsage(turn: AssistantTurn): ResponsesUsage {
   if (turn.usage.usage_status) usage.usage_status = turn.usage.usage_status;
   if (typeof turn.usage.run_input_tokens === "number") usage.run_input_tokens = turn.usage.run_input_tokens;
   if (typeof turn.usage.run_output_tokens === "number") usage.run_output_tokens = turn.usage.run_output_tokens;
+  if (typeof turn.usage.run_cache_read_input_tokens === "number") {
+    usage.run_cache_read_input_tokens = turn.usage.run_cache_read_input_tokens;
+  }
+  if (typeof turn.usage.run_cache_creation_input_tokens === "number") {
+    usage.run_cache_creation_input_tokens = turn.usage.run_cache_creation_input_tokens;
+  }
+  if (typeof turn.usage.run_reasoning_output_tokens === "number") {
+    usage.run_reasoning_output_tokens = turn.usage.run_reasoning_output_tokens;
+  }
   if (typeof turn.usage.model_steps === "number") usage.model_steps = turn.usage.model_steps;
   return usage;
 }

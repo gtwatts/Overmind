@@ -12,12 +12,20 @@ The SDK's `turn-ended` update contains a whole-run total, so it cannot provide t
 measurements proposed below. The helper estimates the last call's context from that total,
 the number of tool batches, and the content added between calls. This remains an estimate,
 not a tokenizer measurement. Exact SDK run totals, including cache and reasoning usage,
-remain available to internal ledger receipts; Responses usage also exposes raw run input and
-output totals alongside the context estimate.
+remain available to internal ledger receipts; Responses usage also exposes raw run input,
+output, cache-read, cache-write and reasoning counters alongside the context estimate, even
+for a single model call. SDK input, cache reads and cache writes are additive. The
+OpenAI-compatible `input_tokens` figure includes all three; uncached input includes SDK input
+plus cache writes. Cache reads are subtracted only when calculating uncached input. Reasoning
+is part of output, so it is not added a second time.
 
 These paths have local unit and protocol contract coverage. The consolidation did not make
 new paid model calls, so the earlier live measurements should not be read as validation of
-the new implementation.
+the new implementation. The subsequent Decisions/TUI validation uses a separate paired live
+harness; see the [candidate results](validation-2026-10-08.md). Those runs verified selection
+and tool correctness, but plain Cursor discovery can replace an SDK run before its usage is
+reported. Final raw counters then cover only the replacement run. Full Cursor token/cost
+comparisons remain unknown rather than treating those partial counters as a complete turn.
 
 ## Summary
 

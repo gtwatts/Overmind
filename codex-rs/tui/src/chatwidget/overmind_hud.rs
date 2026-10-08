@@ -16,6 +16,25 @@ use crate::overmind::hud::config::load_hud_config;
 const UNBADGED_PROVIDERS: &[&str] = &["openai"];
 
 impl ChatWidget {
+    pub(super) fn overmind_hud_mcp_progress(
+        &mut self,
+        notification: codex_app_server_protocol::McpToolCallProgressNotification,
+    ) {
+        if self
+            .thread_id()
+            .is_none_or(|id| id.to_string() != notification.thread_id)
+            || self.turn_lifecycle.last_turn_id.as_deref() != Some(notification.turn_id.as_str())
+        {
+            return;
+        }
+        self.overmind_hud_event(HudEvent::McpProgress {
+            id: &notification.item_id,
+            progress: notification.progress,
+            total: notification.total,
+            message: &notification.message,
+        });
+    }
+
     /// Load `$CODEX_HOME/overmind.toml` and enable the HUD (skipped in unit tests).
     pub(super) fn overmind_hud_init(&mut self) {
         if cfg!(test) {

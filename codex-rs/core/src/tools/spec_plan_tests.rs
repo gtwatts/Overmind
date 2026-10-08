@@ -63,6 +63,45 @@ use crate::tools::spec_plan::build_core_tool_registry;
 
 const MULTI_AGENT_V2_NAMESPACE: &str = "collaboration";
 
+#[test]
+fn overmind_selector_eligibility_preserves_direct_omissions_and_code_mode_only() {
+    use codex_tools::ToolExposures;
+
+    for (omitted, permits_direct, permits_code_mode) in [
+        (ToolExposures::NONE, true, true),
+        (ToolExposures::DIRECT, false, true),
+        (ToolExposures::DEFERRED, false, false),
+        (ToolExposures::CODE_MODE, true, false),
+        (
+            ToolExposures::DIRECT | ToolExposures::DEFERRED,
+            false,
+            false,
+        ),
+        (
+            ToolExposures::DIRECT | ToolExposures::CODE_MODE,
+            false,
+            false,
+        ),
+        (ToolExposures::ALL, false, false),
+    ] {
+        let exposures = ToolExposures::ALL.difference(omitted);
+        for tool_mode in [ToolMode::Direct, ToolMode::CodeMode, ToolMode::CodeModeOnly] {
+            for supports_search in [false, true] {
+                assert_eq!(
+                    super::selector_can_promote(exposures, supports_search, tool_mode),
+                    supports_search
+                        && if tool_mode == ToolMode::CodeModeOnly {
+                            permits_code_mode
+                        } else {
+                            permits_direct
+                        },
+                    "omitted={omitted:?}, mode={tool_mode:?}, search={supports_search}"
+                );
+            }
+        }
+    }
+}
+
 #[derive(Default)]
 struct ToolPlanInputs {
     tool_runtimes: Vec<RegisteredTool>,

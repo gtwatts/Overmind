@@ -18,6 +18,27 @@ pub(super) const PERSISTED_COMMAND_OUTPUT_MAX_BYTES: usize = 64 * 1024;
 const PERSISTED_COMMAND_OUTPUT_TRUNCATION_MARKER: &str =
     "\n... command output truncated for persistence ...\n";
 
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+    use codex_protocol::protocol::McpToolCallProgressEvent;
+
+    #[test]
+    fn mcp_progress_is_ephemeral_in_all_history_modes() {
+        let item = RolloutItem::EventMsg(EventMsg::McpToolCallProgress(McpToolCallProgressEvent {
+            call_id: "render".into(),
+            message: "Frame ready".into(),
+            progress: Some(0.5),
+            total: Some(1.5),
+        }));
+        for mode in [ThreadHistoryMode::Legacy, ThreadHistoryMode::Paginated] {
+            assert!(persisted_rollout_item(&item, mode).is_none());
+            assert!(persisted_rollout_items(&[item.clone()], mode).is_empty());
+            assert!(into_persisted_rollout_items(vec![item.clone()], mode).is_empty());
+        }
+    }
+}
+
 /// Returns the authoritative durable representation of a rollout item.
 pub fn persisted_rollout_item(
     item: &RolloutItem,
@@ -189,6 +210,7 @@ fn persisted_event_msg(
         | EventMsg::EnvironmentConnected(_)
         | EventMsg::EnvironmentDisconnected(_)
         | EventMsg::McpToolCallBegin(_)
+        | EventMsg::McpToolCallProgress(_)
         | EventMsg::ExecCommandBegin(_)
         | EventMsg::TerminalInteraction(_)
         | EventMsg::ExecCommandOutputDelta(_)

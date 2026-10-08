@@ -1503,6 +1503,9 @@ pub enum EventMsg {
 
     McpToolCallEnd(McpToolCallEndEvent),
 
+    /// Progress explicitly reported by an MCP server for an active tool call.
+    McpToolCallProgress(McpToolCallProgressEvent),
+
     WebSearchBegin(WebSearchBeginEvent),
 
     WebSearchEnd(WebSearchEndEvent),
@@ -2719,6 +2722,18 @@ pub struct McpInvocation {
     pub tool: String,
     /// Arguments to the tool call.
     pub arguments: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq)]
+pub struct McpToolCallProgressEvent {
+    pub call_id: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub progress: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub total: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema, TS, PartialEq)]

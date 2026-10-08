@@ -11,6 +11,7 @@
 //! activity = true       # live phase, elapsed time and tool counts while a turn runs
 //! plan_progress = true  # update_plan progress bar
 //! pipeline = true       # stage track of the /pipeline run in progress
+//! pipeline_panel = true # stage clocks and expected/verified artifacts above the HUD
 //! rate_limits = true    # usage-limit bars when the provider reports them
 //! model_badge = true    # provider badge for non-OpenAI providers such as Cursor
 //! turn_summary = true   # per-turn token/tool/cost line in the transcript
@@ -63,6 +64,7 @@ pub(crate) struct HudConfig {
     pub(crate) activity: bool,
     pub(crate) plan_progress: bool,
     pub(crate) pipeline: bool,
+    pub(crate) pipeline_panel: bool,
     pub(crate) rate_limits: bool,
     pub(crate) model_badge: bool,
     pub(crate) turn_summary: bool,
@@ -78,6 +80,7 @@ impl Default for HudConfig {
             activity: true,
             plan_progress: true,
             pipeline: true,
+            pipeline_panel: true,
             rate_limits: true,
             model_badge: true,
             turn_summary: true,
@@ -96,6 +99,7 @@ impl HudConfig {
             activity: false,
             plan_progress: false,
             pipeline: false,
+            pipeline_panel: false,
             rate_limits: false,
             model_badge: false,
             turn_summary: false,

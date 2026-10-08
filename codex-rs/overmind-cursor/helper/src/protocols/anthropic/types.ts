@@ -63,6 +63,9 @@ export interface UsageView {
   /** Overmind: Cursor run totals when input/output are last-step estimates. */
   run_input_tokens?: number;
   run_output_tokens?: number;
+  run_cache_read_input_tokens?: number;
+  run_cache_creation_input_tokens?: number;
+  run_reasoning_output_tokens?: number;
   model_steps?: number;
 }
 

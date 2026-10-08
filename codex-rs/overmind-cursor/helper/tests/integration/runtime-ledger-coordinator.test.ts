@@ -104,10 +104,13 @@ test("multi-call receipts preserve SDK run totals while Responses reports final-
   expect(second.status).toBe(200);
   const final = (await second.json()) as { usage: Record<string, unknown> };
   expect(final.usage).toMatchObject({
-    input_tokens: 9,
+    input_tokens: 12,
     output_tokens: 3,
     run_input_tokens: 11,
     run_output_tokens: 5,
+    run_cache_read_input_tokens: 2,
+    run_cache_creation_input_tokens: 4,
+    run_reasoning_output_tokens: 3,
     model_steps: 2,
   });
   const { ledger, run } = bound(ctx);

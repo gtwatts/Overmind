@@ -2396,7 +2396,9 @@ impl BottomPane {
             };
             flex2.push(/*flex*/ 1, RenderableItem::Owned(above_composer));
             flex2.push(
-                /*flex*/ 0,
+                // Preserve the composer when the optional pipeline panel needs extra rows.
+                /*flex*/
+                1,
                 RenderableItem::Owned(Box::new(
                     self.overmind_hud.row(self.is_task_running, Instant::now()),
                 )),

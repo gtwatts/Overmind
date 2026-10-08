@@ -432,6 +432,7 @@ async fn run_turn(thread: &CodexThread, thread_id: &str, prompt: String) -> anyh
             EventMsg::DynamicToolCallResponse(_)
             | EventMsg::McpToolCallBegin(_)
             | EventMsg::McpToolCallEnd(_)
+            | EventMsg::McpToolCallProgress(_)
             | EventMsg::CollabAgentSpawnBegin(_)
             | EventMsg::CollabAgentSpawnEnd(_)
             | EventMsg::CollabAgentInteractionBegin(_)

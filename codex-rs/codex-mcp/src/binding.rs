@@ -178,6 +178,7 @@ pub struct PreparedMcpCall {
     server_metadata: McpServerMetadata,
     plugin_id: Option<String>,
     selected_plugin_server: bool,
+    progress: Option<tokio::sync::mpsc::Sender<codex_rmcp_client::ToolProgress>>,
 }
 
 impl PreparedMcpCall {
@@ -207,6 +208,7 @@ impl PreparedMcpCall {
             server_metadata,
             plugin_id,
             selected_plugin_server,
+            progress: None,
         })
     }
 
@@ -298,6 +300,15 @@ impl PreparedMcpCall {
             .await
     }
 
+    /// Observe this call's reported MCP progress without changing its captured authority.
+    pub fn with_progress(
+        mut self,
+        sender: tokio::sync::mpsc::Sender<codex_rmcp_client::ToolProgress>,
+    ) -> Self {
+        self.progress = Some(sender);
+        self
+    }
+
     /// Runs irreversible call preparation and execution under the authority of
     /// this call's captured catalog and the extensions owned by the Codex session.
     /// A caller-supplied timeout can further restrict the server's configured timeout.
@@ -353,7 +364,7 @@ impl PreparedMcpCall {
                 };
                 self.client
                     .client
-                    .call_tool(tool_name.clone(), arguments, meta, remaining_timeout)
+                    .call_tool_with_progress(tool_name.clone(), arguments, meta, remaining_timeout, self.progress.clone())
                     .await
                     .with_context(|| format!("tool call failed for `{}/{tool_name}`", self.server_name))
             })

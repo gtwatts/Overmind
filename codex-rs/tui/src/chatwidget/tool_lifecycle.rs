@@ -55,8 +55,15 @@ impl ChatWidget {
     }
 
     pub(super) fn on_mcp_tool_call_started(&mut self, item: ThreadItem) {
-        if let ThreadItem::McpToolCall { server, tool, .. } = &item {
-            self.overmind_hud_event(crate::overmind::hud::HudEvent::McpStarted { server, tool });
+        if let ThreadItem::McpToolCall {
+            id, server, tool, ..
+        } = &item
+        {
+            self.overmind_hud_event(crate::overmind::hud::HudEvent::McpStarted {
+                id,
+                server,
+                tool,
+            });
         }
         self.defer_or_handle(
             item,
@@ -66,7 +73,9 @@ impl ChatWidget {
     }
 
     pub(super) fn on_mcp_tool_call_completed(&mut self, item: ThreadItem) {
-        self.overmind_hud_event(crate::overmind::hud::HudEvent::ToolFinished);
+        if let ThreadItem::McpToolCall { id, .. } = &item {
+            self.overmind_hud_event(crate::overmind::hud::HudEvent::McpFinished(id));
+        }
         self.defer_or_handle(
             item,
             InterruptManager::push_item_completed,

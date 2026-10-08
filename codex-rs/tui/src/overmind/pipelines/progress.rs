@@ -5,6 +5,7 @@ use codex_overmind_pipelines::StageState;
 use codex_overmind_pipelines::StageView;
 
 use crate::overmind::hud::PipelineProgress;
+use crate::overmind::hud::PipelineStageDetail;
 use crate::overmind::hud::meter::StageStatus;
 
 /// A failed-for-missing-outputs or interrupted-by-exit stage whose outputs now all exist.
@@ -58,5 +59,46 @@ pub(super) fn progress(run: &Run, views: &[StageView]) -> Option<PipelineProgres
         name: run.state.pipeline.clone(),
         stages,
         current,
+        details: run
+            .pipeline
+            .order()
+            .iter()
+            .map(|&index| {
+                let step = &steps[index];
+                let record = run.record(index);
+                let timestamp = |value: Option<&str>| {
+                    value
+                        .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                        .map(|value| value.timestamp_millis())
+                };
+                PipelineStageDetail {
+                    id: step.id.clone(),
+                    status: stage_status(views[index]),
+                    started_at_ms: timestamp(
+                        record.and_then(|record| record.started_at.as_deref()),
+                    ),
+                    finished_at_ms: timestamp(
+                        record.and_then(|record| record.finished_at.as_deref()),
+                    ),
+                    expected: step.output_paths().map(str::to_string).collect(),
+                    recorded: record
+                        .map(|record| {
+                            record
+                                .evidence
+                                .iter()
+                                .map(|item| item.path.clone())
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                }
+            })
+            .collect(),
+        paused: run.state.paused.clone(),
+        paused_at_ms: run
+            .state
+            .paused
+            .as_ref()
+            .and_then(|_| chrono::DateTime::parse_from_rfc3339(&run.state.updated_at).ok())
+            .map(|value| value.timestamp_millis()),
     })
 }

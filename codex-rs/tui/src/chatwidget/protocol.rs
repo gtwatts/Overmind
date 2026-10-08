@@ -44,6 +44,11 @@ impl ChatWidget {
             self.restore_retry_status_header_if_present();
         }
         match notification {
+            ServerNotification::McpToolCallProgress(notification) => {
+                if !from_replay {
+                    self.overmind_hud_mcp_progress(notification);
+                }
+            }
             ServerNotification::McpServerOauthLoginCompleted(notification) => {
                 if notification.success {
                     self.add_info_message(
@@ -373,7 +378,6 @@ impl ChatWidget {
             | ServerNotification::ProcessExited(_)
             | ServerNotification::McpServerEventStream(_)
             | ServerNotification::FileChangePatchUpdated(_)
-            | ServerNotification::McpToolCallProgress(_)
             | ServerNotification::AppListUpdated(_)
             | ServerNotification::EnvironmentConnected(_)
             | ServerNotification::EnvironmentDisconnected(_)

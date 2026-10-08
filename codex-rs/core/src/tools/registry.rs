@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -308,6 +309,8 @@ pub(crate) struct RegisteredTool {
 #[derive(Default)]
 pub struct ToolRegistry {
     tools: IndexMap<ToolName, RegisteredTool>,
+    /// Step-local prompt preloads; these never change exposure or dispatch authority.
+    preselected_code_mode_tools: HashSet<ToolName>,
     first_collision: Option<ToolName>,
     pub(crate) tool_policy: Arc<ToolPolicy>,
 }
@@ -446,6 +449,16 @@ impl ToolRegistry {
 
     pub(crate) fn entries_mut(&mut self) -> impl Iterator<Item = &mut RegisteredTool> {
         self.tools.values_mut()
+    }
+
+    pub(crate) fn preselect_code_mode_tool(&mut self, name: ToolName) {
+        self.preselected_code_mode_tools
+            .insert(name.with_default_namespace());
+    }
+
+    pub(crate) fn is_code_mode_preselected(&self, name: &ToolName) -> bool {
+        self.preselected_code_mode_tools
+            .contains(&name.clone().with_default_namespace())
     }
 
     /// Returns configured MCP server names and their registered callable namespaces.

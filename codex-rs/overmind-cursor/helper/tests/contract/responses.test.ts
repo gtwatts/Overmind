@@ -263,16 +263,19 @@ test("single function_call continuation stays on the same SDK run", async () => 
   ]);
   // Two model calls: lookup + its result add ~6 tokens before the final call.
   expect(final.usage).toEqual({
-    input_tokens: 9,
+    input_tokens: 12,
     output_tokens: 3,
-    total_tokens: 12,
+    total_tokens: 15,
     cache_creation_input_tokens: 3,
-    cache_read_input_tokens: 2,
-    input_tokens_details: { cached_tokens: 2 },
+    cache_read_input_tokens: 1,
+    input_tokens_details: { cached_tokens: 1 },
     output_tokens_details: { reasoning_tokens: 2 },
     usage_status: "sdk",
     run_input_tokens: 11,
     run_output_tokens: 5,
+    run_cache_read_input_tokens: 2,
+    run_cache_creation_input_tokens: 4,
+    run_reasoning_output_tokens: 3,
     model_steps: 2,
   });
   expect(ctx.sdk.agents.length).toBe(1);

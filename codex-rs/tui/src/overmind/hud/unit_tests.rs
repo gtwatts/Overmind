@@ -188,6 +188,7 @@ fn turn_activity_tracks_phase_and_counts() {
     turn.apply(HudEvent::PatchStarted { files: 3 });
     assert_eq!(turn.phase.detail().as_deref(), Some("3 files"));
     turn.apply(HudEvent::McpStarted {
+        id: "github-1",
         server: "github",
         tool: "search",
     });
@@ -215,6 +216,65 @@ fn turn_activity_tracks_phase_and_counts() {
         turn.elapsed(t0 + Duration::from_secs(5)),
         Duration::from_secs(5)
     );
+}
+
+#[test]
+fn mcp_progress_is_call_scoped_monotonic_and_cleared_at_completion() {
+    let mut turn = TurnActivity::new(std::time::Instant::now(), Default::default());
+    let start = |id| HudEvent::McpStarted {
+        id,
+        server: "media",
+        tool: "render",
+    };
+    let report = |id, progress, total| HudEvent::McpProgress {
+        id,
+        progress: Some(progress),
+        total,
+        message: "rendering",
+    };
+    turn.apply(start("a"));
+    turn.apply(start("b"));
+    assert!(turn.apply(report("a", 0.75, Some(1.5))));
+    assert!(turn.apply(report("b", 1.0, Some(2.0))));
+    assert!(!turn.apply(report("a", 0.25, Some(1.5))));
+    assert_eq!(turn.progress.as_ref().unwrap().id, "b");
+    assert!(!turn.apply(report("unknown", 1.0, Some(2.0))));
+    assert!(!turn.apply(report("b", f64::NAN, Some(2.0))));
+    assert!(!turn.apply(report("b", -1.0, Some(2.0))));
+    assert!(turn.apply(report("b", 1.5, Some(0.0))));
+    assert_eq!(turn.progress.as_ref().unwrap().total, None);
+    turn.apply(HudEvent::McpFinished("a"));
+    assert_eq!(turn.progress.as_ref().unwrap().id, "b");
+    assert_eq!(turn.phase, Phase::Calling("media.render".into()));
+    turn.apply(HudEvent::McpFinished("b"));
+    assert!(turn.progress.is_none());
+    assert_eq!(turn.phase, Phase::Thinking);
+    assert!(!turn.apply(report("b", 2.0, Some(2.0))));
+    assert_eq!(turn.counts.mcp, 2);
+}
+
+#[test]
+fn completing_the_latest_call_restores_another_active_calls_progress_and_phase() {
+    let mut turn = TurnActivity::new(std::time::Instant::now(), Default::default());
+    for id in ["a", "b"] {
+        turn.apply(HudEvent::McpStarted {
+            id,
+            server: "media",
+            tool: "render",
+        });
+        turn.apply(HudEvent::McpProgress {
+            id,
+            progress: Some(1.0),
+            total: Some(4.0),
+            message: id,
+        });
+    }
+    turn.apply(HudEvent::McpFinished("b"));
+    assert_eq!(turn.progress.as_ref().unwrap().id, "a");
+    assert_eq!(turn.phase, Phase::Calling("media.render".into()));
+    turn.apply(HudEvent::McpFinished("a"));
+    assert!(turn.progress.is_none());
+    assert_eq!(turn.phase, Phase::Thinking);
 }
 
 #[test]

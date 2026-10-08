@@ -5,9 +5,12 @@ use crate::overmind::hud::ContextGauge;
 use crate::overmind::hud::HudEvent;
 use crate::overmind::hud::HudState;
 use crate::overmind::hud::ModelBadge;
+use crate::overmind::hud::PipelineProgress;
+use crate::overmind::hud::PipelineStageDetail;
 use crate::overmind::hud::config::HudConfig;
 use crate::overmind::hud::meter::Glyphs;
 use crate::overmind::hud::meter::Palette;
+use crate::overmind::hud::meter::StageStatus;
 use crate::token_usage::TokenUsage;
 use codex_protocol::plan_tool::PlanItemArg;
 use codex_protocol::plan_tool::StepStatus;
@@ -87,4 +90,43 @@ fn disabled_hud_adds_no_rows() {
     configured.overmind_hud = HudState::default();
     assert_eq!(configured.desired_height(80), plain.desired_height(80));
     assert_eq!(hud_pane().desired_height(80), plain.desired_height(80) + 1);
+}
+
+#[test]
+fn pipeline_panel_yields_height_to_keep_the_composer_visible() {
+    let mut pane = hud_pane();
+    let stages: Vec<_> = (0..6)
+        .map(|index| (format!("stage-{index}"), StageStatus::Pending))
+        .collect();
+    let details = stages
+        .iter()
+        .map(|(id, status)| PipelineStageDetail {
+            id: id.clone(),
+            status: *status,
+            started_at_ms: None,
+            finished_at_ms: None,
+            expected: vec![format!("production/{id}.mp4")],
+            recorded: Vec::new(),
+        })
+        .collect();
+    pane.overmind_hud.set_pipeline(Some(PipelineProgress {
+        name: "video".into(),
+        stages,
+        details,
+        current: Some("stage-2".into()),
+        paused: None,
+        paused_at_ms: None,
+    }));
+    for width in [24, 40, 80, 120] {
+        let composer_height = pane.composer.desired_height(width);
+        for height in composer_height..=composer_height + 7 {
+            let area = Rect::new(0, 0, width, height);
+            let text = render_snapshot(&pane, area);
+            assert!(text.contains("Ask Codex"), "{width}x{height}: {text}");
+            let (x, y) = pane
+                .cursor_pos(area)
+                .expect("composer cursor remains visible");
+            assert!(x < width && y < height);
+        }
+    }
 }

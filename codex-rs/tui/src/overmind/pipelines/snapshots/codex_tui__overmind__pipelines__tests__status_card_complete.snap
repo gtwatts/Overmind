@@ -9,3 +9,4 @@ expression: fx.text(&effects)
   ✓ script                   production/script.md
   ✓ approve-paid-generation  production/approval.md
   ✓ render                   production/render.mp4
+hud: mini-whiteboard 4/4 current=None

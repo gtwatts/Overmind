@@ -5,6 +5,7 @@ use codex_protocol::protocol::ExecCommandBeginEvent;
 use codex_protocol::protocol::ExecCommandEndEvent;
 use codex_protocol::protocol::ExecCommandSource;
 use codex_protocol::protocol::ExecCommandStatus;
+use codex_protocol::protocol::McpToolCallProgressEvent;
 use codex_protocol::protocol::SubAgentActivityEvent;
 use codex_protocol::protocol::SubAgentActivityKind;
 use pretty_assertions::assert_eq;
@@ -14,6 +15,18 @@ use std::time::Duration;
 use super::ToolRuntimeTraceEvent;
 use super::tool_runtime_trace_event;
 use crate::ExecutionStatus;
+
+#[test]
+fn mcp_progress_is_not_a_durable_trace_boundary_or_payload() {
+    let event = EventMsg::McpToolCallProgress(McpToolCallProgressEvent {
+        call_id: "render".into(),
+        message: "Frame ready".into(),
+        progress: Some(0.5),
+        total: Some(1.5),
+    });
+    assert!(tool_runtime_trace_event(&event).is_none());
+    assert!(super::wrapped_protocol_event_type(&event).is_none());
+}
 
 #[test]
 fn sub_agent_activity_is_a_terminal_tool_runtime_event() -> anyhow::Result<()> {

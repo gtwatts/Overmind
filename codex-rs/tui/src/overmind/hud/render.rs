@@ -51,6 +51,13 @@ pub(super) fn hud_line(
         && let Some(turn) = &state.turn
     {
         segments.push(activity_segment(turn, now, g, p));
+        if let Some(reported) = turn
+            .progress
+            .as_ref()
+            .and_then(|progress| tool_progress_segment(progress, g, p))
+        {
+            segments.push(reported);
+        }
         if let Some(tools) = tools_segment(&turn.counts, PRIORITY_TOOLS, Align::Left, p) {
             segments.push(tools);
         }
@@ -88,6 +95,63 @@ pub(super) fn hud_line(
         g.separator(),
         p.style(Tone::Muted),
     )
+}
+
+fn tool_progress_segment(
+    reported: &super::activity::ToolProgress,
+    g: Glyphs,
+    p: Palette,
+) -> Option<Segment> {
+    if let Some((done, total)) = reported.progress.zip(reported.total) {
+        let ratio = (done / total).clamp(0.0, 1.0);
+        let percent = format!("{}%", (ratio * 100.0).floor() as u8);
+        let mut full = vec![
+            p.span(truncate(&reported.tool, 32, g), Tone::Plain),
+            Span::raw(" "),
+        ];
+        full.extend(bar(ratio, 10, Tone::Calm, g, p));
+        full.push(Span::raw(format!(" {percent}")));
+        if !reported.message.is_empty() {
+            full.push(p.span(
+                format!(" {}", truncate(&reported.message, 44, g)),
+                Tone::Muted,
+            ));
+        }
+        let mut medium = vec![
+            p.span(truncate(&reported.tool, 20, g), Tone::Plain),
+            Span::raw(" "),
+        ];
+        medium.extend(bar(ratio, 6, Tone::Calm, g, p));
+        medium.push(Span::raw(format!(" {percent}")));
+        Some(Segment::new(
+            105,
+            Align::Left,
+            vec![
+                full,
+                medium,
+                vec![Span::raw(format!(
+                    "{} {percent}",
+                    truncate(&reported.tool, 12, g)
+                ))],
+                vec![Span::raw(percent)],
+            ],
+        ))
+    } else if !reported.message.is_empty() {
+        Some(Segment::new(
+            99,
+            Align::Left,
+            vec![
+                vec![Span::raw(format!(
+                    "{}: {}",
+                    truncate(&reported.tool, 28, g),
+                    truncate(&reported.message, 44, g)
+                ))],
+                vec![Span::raw(truncate(&reported.message, 24, g))],
+            ],
+        ))
+    } else {
+        None
+    }
 }
 
 fn activity_segment(turn: &TurnActivity, now: Instant, g: Glyphs, p: Palette) -> Segment {

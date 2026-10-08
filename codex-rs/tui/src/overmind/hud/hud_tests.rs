@@ -17,6 +17,195 @@ use crate::overmind::hud::meter::stage_track;
 
 const WIDTHS: &[u16] = &[140, 100, 80, 60, 40, 24];
 
+fn pipeline_state(glyphs: Glyphs) -> HudState {
+    let mut state = HudState::new(HudConfig::default(), glyphs, Palette::MONO);
+    state.set_pipeline(Some(PipelineProgress {
+        name: "demo".to_string(),
+        stages: vec![
+            ("script".into(), StageStatus::Done),
+            ("render".into(), StageStatus::Running),
+            ("review".into(), StageStatus::Pending),
+        ],
+        current: Some("render".into()),
+        details: vec![
+            PipelineStageDetail {
+                id: "script".into(),
+                status: StageStatus::Done,
+                started_at_ms: Some(0),
+                finished_at_ms: Some(2_000),
+                expected: vec!["production/script.md".into()],
+                recorded: vec!["production/script.md".into()],
+            },
+            PipelineStageDetail {
+                id: "render".into(),
+                status: StageStatus::Running,
+                started_at_ms: Some(4_000),
+                finished_at_ms: None,
+                expected: vec!["production/render.mp4".into()],
+                recorded: Vec::new(),
+            },
+            PipelineStageDetail {
+                id: "review".into(),
+                status: StageStatus::Pending,
+                started_at_ms: None,
+                finished_at_ms: None,
+                expected: Vec::new(),
+                recorded: Vec::new(),
+            },
+        ],
+        paused: None,
+        paused_at_ms: None,
+    }));
+    state
+}
+
+#[test]
+fn pipeline_panel_uses_stage_clocks_and_labels_artifact_evidence() {
+    let state = pipeline_state(Glyphs::Unicode);
+    let text = state
+        .lines(120, false, Instant::now(), 10_000, 6)
+        .iter()
+        .map(line_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        text.contains("script 2s · verified production/script.md"),
+        "{text}"
+    );
+    assert!(
+        text.contains("render 6s · expected production/render.mp4"),
+        "{text}"
+    );
+    let later = state
+        .lines(120, false, Instant::now(), 20_000, 6)
+        .iter()
+        .map(line_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(later.contains("script 2s"));
+    assert!(later.contains("render 16s"));
+}
+
+#[test]
+fn pipeline_panel_is_bounded_and_respects_ascii_monochrome_and_toggle() {
+    for glyphs in [Glyphs::Ascii, Glyphs::Unicode] {
+        let mut state = pipeline_state(glyphs);
+        for width in [1, 8, 17, 18, 24, 40, 60, 80, 140] {
+            for height in [0, 1, 2, 3, 6, 20] {
+                let lines = state.lines(width, false, Instant::now(), 10_000, height);
+                assert!(lines.len() <= usize::from(height.min(6)));
+                for line in lines {
+                    assert!(
+                        line.width() <= usize::from(width),
+                        "width {width}: {}",
+                        line_text(&line)
+                    );
+                    assert!(
+                        line.spans
+                            .iter()
+                            .all(|span| span.style.fg.is_none() && span.style.bg.is_none())
+                    );
+                    if glyphs == Glyphs::Ascii {
+                        assert!(line_text(&line).is_ascii());
+                    }
+                }
+            }
+        }
+        state.config.pipeline_panel = false;
+        assert_eq!(state.row(false, Instant::now()).desired_height(120), 1);
+        state.config.hud = false;
+        assert_eq!(state.row(false, Instant::now()).desired_height(120), 0);
+    }
+}
+
+#[test]
+fn paused_pipeline_clock_stops_and_failure_and_stale_artifacts_are_explicit() {
+    let mut state = pipeline_state(Glyphs::Unicode);
+    let pipeline = state.pipeline.as_mut().unwrap();
+    pipeline.paused = Some("stopped by user".into());
+    pipeline.paused_at_ms = Some(8_000);
+    pipeline.details[0].status = StageStatus::Stale;
+    let text = state
+        .lines(120, false, Instant::now(), 60_000, 6)
+        .iter()
+        .map(line_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("paused: stopped by user"));
+    assert!(text.contains("script 2s · stale production/script.md"));
+    assert!(text.contains("render 4s"));
+    let pipeline = state.pipeline.as_mut().unwrap();
+    pipeline.paused = None;
+    pipeline.paused_at_ms = None;
+    pipeline.stages[1].1 = StageStatus::Failed;
+    pipeline.details[1].status = StageStatus::Failed;
+    pipeline.details[1].finished_at_ms = Some(9_000);
+    let text = state
+        .lines(120, false, Instant::now(), 60_000, 6)
+        .iter()
+        .map(line_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("failed"));
+    assert!(text.contains("render 5s"));
+}
+
+#[test]
+fn completed_pipeline_panel_has_fixed_clocks_even_if_a_pause_reason_remains() {
+    let mut state = pipeline_state(Glyphs::Ascii);
+    let pipeline = state.pipeline.as_mut().unwrap();
+    pipeline.current = None;
+    pipeline.paused = Some("old reason".into());
+    for (index, stage) in pipeline.details.iter_mut().enumerate() {
+        stage.status = StageStatus::Done;
+        stage.started_at_ms = Some(1_000);
+        stage.finished_at_ms = Some(4_000);
+        pipeline.stages[index].1 = StageStatus::Done;
+    }
+    let now = Instant::now();
+    let first = state.lines(120, false, now, 10_000, 6);
+    let later = state.lines(120, false, now, 80_000, 6);
+    assert_eq!(first, later);
+    assert!(line_text(&first[0]).contains("complete"));
+    assert!(!line_text(&first[0]).contains("paused"));
+}
+
+#[test]
+fn reported_tool_progress_is_determinate_only_with_a_valid_total() {
+    let mut state = HudState::new(HudConfig::default(), Glyphs::Ascii, Palette::MONO);
+    let now = Instant::now();
+    state.begin_turn(now, TokenUsage::default());
+    state.record(HudEvent::McpStarted {
+        id: "render",
+        server: "photocraft",
+        tool: "render",
+    });
+    state.record(HudEvent::McpProgress {
+        id: "render",
+        progress: Some(0.5),
+        total: Some(1.5),
+        message: "\x1b[31mFrame\nready\x07\u{202e}",
+    });
+    for width in [140, 80, 40, 14, 5] {
+        let text = line_text(&state.line(width, true, now).unwrap());
+        assert!(text.contains("33%"), "{text}");
+        assert!(text.is_ascii());
+        assert!(!text.contains('\x1b') && !text.contains('\n'));
+    }
+    state.record(HudEvent::McpProgress {
+        id: "render",
+        progress: Some(0.75),
+        total: None,
+        message: "Finishing",
+    });
+    let text = line_text(&state.line(140, true, now).unwrap());
+    assert!(!text.contains('%'));
+    assert!(text.contains("Finishing"));
+    state.record(HudEvent::McpFinished("render"));
+    let text = line_text(&state.line(140, true, now).unwrap());
+    assert!(!text.contains("Finishing"));
+}
+
 fn line_text(line: &Line<'_>) -> String {
     line.spans
         .iter()
@@ -99,6 +288,7 @@ fn running_state(glyphs: Glyphs, t0: Instant) -> HudState {
     state.record(HudEvent::PatchStarted { files: 2 });
     state.record(HudEvent::PatchStarted { files: 1 });
     state.record(HudEvent::McpStarted {
+        id: "github-1",
         server: "github",
         tool: "get_file_contents",
     });

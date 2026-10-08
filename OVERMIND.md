@@ -192,6 +192,8 @@ hud = true            # master switch for the HUD row
 context_gauge = true
 activity = true
 plan_progress = true
+pipeline = true
+pipeline_panel = true # stage clocks and expected/verified artifacts
 rate_limits = true
 model_badge = true
 turn_summary = true
@@ -207,8 +209,20 @@ output = 2.5
 Unknown keys under `[tui]` produce a transcript warning and fall back to defaults.
 
 The pipeline row (M2) uses the stage widgets above; toggle it with `pipeline = true|false` under
-`[tui]`. Still planned for M3: a fuller pipeline panel (per-stage elapsed time, current artifact) and determinate progress for long tool calls
-when the tool reports it.
+`[tui]`. The bounded pipeline panel adds per-stage elapsed time and expected, verified or stale
+artifact details; toggle it with `pipeline_panel = true|false`. Numeric MCP progress now reaches
+the matching active call, with a percentage only when the server reports a valid total.
+See [Decisions selection and TUI progress](docs/overmind/decisions-tui.md) for configuration,
+fallback behavior and validation tools, and the
+[candidate validation report](docs/overmind/validation-2026-10-08.md) for recorded checks.
+
+### Per-turn Decisions tool selection
+
+The optional OpenAI Decisions selector preloads relevant plugin MCP tool definitions for both
+OpenAI and Cursor turns. It preserves existing tool permissions and execution modes, with the
+remaining tools still available through lazy discovery. Failure or timeout returns to ordinary
+lazy loading. Enable `[tool_selector]` in `overmind.toml` and supply an OpenAI API key; subscription
+authentication alone does not authenticate the separate Decisions API.
 
 ### Shipped extra: built-in Cursor provider
 
@@ -242,7 +256,7 @@ Overmind's own sessions, not the stock daemon's.
 | M1 | User-defined slash commands, bundled `/video` `/whiteboard` `/photocraft` `/examples`, skill attachment, live reload, `/commands`, tests | integrated on `overmind/main` |
 | Extra | Built-in Cursor provider (`overmind-cursor`) | integrated on `overmind/main` |
 | M2 | Native pipelines (port `pipeline.yaml` + `PIPELINE.md`), run state, inspect/re-run | integrated on `overmind/main` |
-| M3 | TUI visuals: HUD (activity, plan, context, limits, badge), turn summary, shared widgets | first set integrated on `overmind/main`; further panels remain planned |
+| M3 | TUI visuals: HUD, turn summary, pipeline stage panel and reported MCP progress | validated candidate ready for user trial; see validation report |
 | M4 | Carry over Todd's setup | planned |
 
 ### M4: carry-over of Todd's current Codex setup
@@ -362,7 +376,7 @@ it from the target directory under another name:
 
 ```bash
 cd ~/Documents/projects/Overmind/codex-rs
-cargo build -p codex-cli --bin codex
+cargo build -p codex-cli -p codex-code-mode-host --bins
 alias overmind="$HOME/Documents/projects/Overmind/codex-rs/target/debug/codex"
 overmind            # then type / to see /video, /whiteboard, /photocraft, /examples; /commands lists them
 overmind -m grok-4.7   # Cursor model; the HUD shows "◆ Cursor grok-4.7"
@@ -372,3 +386,6 @@ overmind               # then /pipeline list, /pipeline run <name> ...
 The HUD row appears above the composer once there is something to show (a running turn, a plan,
 context usage after the first turn, or a non-OpenAI provider). Try `TERM=dumb overmind` or
 `NO_COLOR=1 overmind` to see the fallbacks.
+
+The `codex-code-mode-host` companion must stay beside the source-built CLI for native OpenAI
+code-mode models. This side-by-side command does not replace the installed `codex` launcher.

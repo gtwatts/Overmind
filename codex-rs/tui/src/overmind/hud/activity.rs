@@ -1,5 +1,6 @@
 //! Live turn activity: what the agent is doing right now and which tools it has used.
 
+use std::collections::HashMap;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -105,8 +106,21 @@ pub(crate) enum HudEvent<'a> {
     Thinking,
     Responding,
     CommandStarted(&'a str),
-    PatchStarted { files: usize },
-    McpStarted { server: &'a str, tool: &'a str },
+    PatchStarted {
+        files: usize,
+    },
+    McpStarted {
+        id: &'a str,
+        server: &'a str,
+        tool: &'a str,
+    },
+    McpFinished(&'a str),
+    McpProgress {
+        id: &'a str,
+        progress: Option<f64>,
+        total: Option<f64>,
+        message: &'a str,
+    },
     DynamicToolStarted(&'a str),
     WebSearchStarted,
     ImageGenerationStarted,
@@ -121,6 +135,20 @@ pub(crate) struct TurnActivity {
     pub(crate) phase: Phase,
     pub(crate) counts: ToolCounts,
     pub(crate) start_usage: TokenUsage,
+    mcp_calls: HashMap<String, String>,
+    mcp_phase_call: Option<String>,
+    mcp_reports: HashMap<String, ToolProgress>,
+    mcp_report_order: Vec<String>,
+    pub(crate) progress: Option<ToolProgress>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ToolProgress {
+    pub(crate) id: String,
+    pub(crate) tool: String,
+    pub(crate) progress: Option<f64>,
+    pub(crate) total: Option<f64>,
+    pub(crate) message: String,
 }
 
 impl TurnActivity {
@@ -130,6 +158,11 @@ impl TurnActivity {
             phase: Phase::Starting,
             counts: ToolCounts::default(),
             start_usage,
+            mcp_calls: HashMap::new(),
+            mcp_phase_call: None,
+            mcp_reports: HashMap::new(),
+            mcp_report_order: Vec::new(),
+            progress: None,
         }
     }
 
@@ -139,7 +172,13 @@ impl TurnActivity {
 
     /// Apply an event; returns whether anything visible changed.
     pub(crate) fn apply(&mut self, event: HudEvent<'_>) -> bool {
-        let before = (self.phase.clone(), self.counts);
+        let before = (self.phase.clone(), self.counts, self.progress.clone());
+        if !matches!(
+            event,
+            HudEvent::McpStarted { .. } | HudEvent::McpFinished(_) | HudEvent::McpProgress { .. }
+        ) {
+            self.mcp_phase_call = None;
+        }
         match event {
             HudEvent::Thinking => self.set_phase(Phase::Thinking),
             HudEvent::Responding => self.set_phase(Phase::Responding),
@@ -151,9 +190,84 @@ impl TurnActivity {
                 self.counts.edits += 1;
                 self.phase = Phase::Editing(files);
             }
-            HudEvent::McpStarted { server, tool } => {
-                self.counts.mcp += 1;
-                self.phase = Phase::Calling(format!("{server}.{tool}"));
+            HudEvent::McpStarted { id, server, tool } => {
+                let label = super::pipeline_panel::inline(&format!("{server}.{tool}"));
+                if self
+                    .mcp_calls
+                    .insert(id.to_string(), label.clone())
+                    .is_none()
+                {
+                    self.counts.mcp += 1;
+                }
+                self.phase = Phase::Calling(label);
+                self.mcp_phase_call = Some(id.to_string());
+            }
+            HudEvent::McpFinished(id) => {
+                if self.mcp_calls.remove(id).is_some() {
+                    self.mcp_reports.remove(id);
+                    self.mcp_report_order.retain(|call| call != id);
+                    if self
+                        .progress
+                        .as_ref()
+                        .is_some_and(|progress| progress.id == id)
+                    {
+                        self.progress = self
+                            .mcp_report_order
+                            .last()
+                            .and_then(|id| self.mcp_reports.get(id))
+                            .cloned();
+                    }
+                    if self.mcp_phase_call.as_deref() == Some(id) {
+                        let remaining = self
+                            .progress
+                            .as_ref()
+                            .map(|report| (report.id.clone(), report.tool.clone()))
+                            .or_else(|| {
+                                self.mcp_calls
+                                    .iter()
+                                    .min_by_key(|(id, _)| *id)
+                                    .map(|(id, tool)| (id.clone(), tool.clone()))
+                            });
+                        self.mcp_phase_call = remaining.as_ref().map(|(id, _)| id.clone());
+                        self.phase = remaining
+                            .map(|(_, tool)| Phase::Calling(tool))
+                            .unwrap_or(Phase::Thinking);
+                    }
+                }
+            }
+            HudEvent::McpProgress {
+                id,
+                progress,
+                total,
+                message,
+            } => {
+                let Some(tool) = self.mcp_calls.get(id) else {
+                    return false;
+                };
+                if progress.is_some_and(|value| !value.is_finite() || value < 0.0) {
+                    return false;
+                }
+                let total = total.filter(|value| value.is_finite() && *value > 0.0);
+                if let Some(previous) = self.mcp_reports.get(id)
+                    && previous.total == total
+                    && previous
+                        .progress
+                        .zip(progress)
+                        .is_some_and(|(before, after)| after < before)
+                {
+                    return false;
+                }
+                let reported = ToolProgress {
+                    id: id.to_string(),
+                    tool: tool.clone(),
+                    progress,
+                    total,
+                    message: super::pipeline_panel::inline(message),
+                };
+                self.mcp_reports.insert(id.to_string(), reported.clone());
+                self.mcp_report_order.retain(|call| call != id);
+                self.mcp_report_order.push(id.to_string());
+                self.progress = Some(reported);
             }
             HudEvent::DynamicToolStarted(tool) => {
                 self.counts.other += 1;
@@ -170,7 +284,7 @@ impl TurnActivity {
             HudEvent::ToolFinished => self.set_phase(Phase::Thinking),
             HudEvent::ApprovalRequested => self.set_phase(Phase::AwaitingApproval),
         }
-        before != (self.phase.clone(), self.counts)
+        before != (self.phase.clone(), self.counts, self.progress.clone())
     }
 
     fn set_phase(&mut self, phase: Phase) {

@@ -408,6 +408,7 @@ pub struct RmcpClient {
     initialize_context: Mutex<Option<InitializeContext>>,
     session_recovery_lock: Semaphore,
     elicitation_pause_state: ElicitationPauseState,
+    progress: crate::tool_progress::ProgressRegistry,
 }
 
 impl RmcpClient {
@@ -448,6 +449,7 @@ impl RmcpClient {
             initialize_context: Mutex::new(None),
             session_recovery_lock: Semaphore::new(/*permits*/ 1),
             elicitation_pause_state: ElicitationPauseState::new(),
+            progress: Default::default(),
         })
     }
 
@@ -522,6 +524,7 @@ impl RmcpClient {
             requires_read_only_tools: false,
             session_recovery_lock: Semaphore::new(/*permits*/ 1),
             elicitation_pause_state: ElicitationPauseState::new(),
+            progress: Default::default(),
         })
     }
 
@@ -629,6 +632,7 @@ impl RmcpClient {
             requires_read_only_tools: false,
             session_recovery_lock: Semaphore::new(/*permits*/ 1),
             elicitation_pause_state: ElicitationPauseState::new(),
+            progress: Default::default(),
         })
     }
 
@@ -823,6 +827,18 @@ impl RmcpClient {
         meta: Option<serde_json::Value>,
         timeout: Option<Duration>,
     ) -> Result<CallToolResult> {
+        self.call_tool_with_progress(name, arguments, meta, timeout, None)
+            .await
+    }
+
+    pub async fn call_tool_with_progress(
+        &self,
+        name: String,
+        arguments: Option<serde_json::Value>,
+        meta: Option<serde_json::Value>,
+        timeout: Option<Duration>,
+        progress: Option<tokio::sync::mpsc::Sender<crate::ToolProgress>>,
+    ) -> Result<CallToolResult> {
         let authentication_required_result = |error| {
             if !is_authentication_required_error(&error) {
                 return Err(error);
@@ -863,6 +879,14 @@ impl RmcpClient {
             None => None,
         };
         self.apply_read_only_tools_meta(&mut meta);
+        // The guard removes this route on success, failure, timeout or cancellation.
+        let registration = progress.map(|sender| self.progress.register(sender));
+        if let Some(registration) = &registration {
+            meta.get_or_insert_default().insert(
+                crate::tool_progress::PROGRESS_ROUTE_META_KEY.to_string(),
+                Value::String(registration.token.clone()),
+            );
+        }
         let meta = crate::trace_context::with_current_trace(meta);
         let mut rmcp_params = CallToolRequestParams::new(name);
         rmcp_params.arguments = arguments;
@@ -1295,7 +1319,8 @@ impl RmcpClient {
             initialize_context.client_info.clone(),
             Box::new(move |id, request| send_elicitation(id, request)),
             self.elicitation_pause_state.clone(),
-        );
+        )
+        .with_progress(self.progress.clone());
         let _initialize_deadline = match &self.transport_recipe {
             TransportRecipe::StreamableHttp {
                 initialize_deadline,
@@ -1315,19 +1340,37 @@ impl RmcpClient {
         let (transport, oauth_runtime) = match pending_transport {
             PendingTransport::InProcess { transport } => (
                 client_service
-                    .serve_with_lifecycle(transport, lifecycle)
+                    .serve_with_lifecycle(
+                        crate::tool_progress::capture_tool_progress(
+                            transport,
+                            self.progress.clone(),
+                        ),
+                        lifecycle,
+                    )
                     .boxed(),
                 None,
             ),
             PendingTransport::Stdio { transport } => (
                 client_service
-                    .serve_with_lifecycle(*transport, lifecycle)
+                    .serve_with_lifecycle(
+                        crate::tool_progress::capture_tool_progress(
+                            *transport,
+                            self.progress.clone(),
+                        ),
+                        lifecycle,
+                    )
                     .boxed(),
                 None,
             ),
             PendingTransport::StreamableHttp { transport } => (
                 client_service
-                    .serve_with_lifecycle(capture_event_notifications(transport), lifecycle)
+                    .serve_with_lifecycle(
+                        crate::tool_progress::capture_tool_progress(
+                            capture_event_notifications(transport),
+                            self.progress.clone(),
+                        ),
+                        lifecycle,
+                    )
                     .boxed(),
                 None,
             ),
@@ -1336,13 +1379,25 @@ impl RmcpClient {
                 oauth_runtime,
             } => (
                 client_service
-                    .serve_with_lifecycle(transport, lifecycle)
+                    .serve_with_lifecycle(
+                        crate::tool_progress::capture_tool_progress(
+                            transport,
+                            self.progress.clone(),
+                        ),
+                        lifecycle,
+                    )
                     .boxed(),
                 Some(oauth_runtime),
             ),
             PendingTransport::StreamableHttpWithAccessTokenOnly { transport } => (
                 client_service
-                    .serve_with_lifecycle(transport, lifecycle)
+                    .serve_with_lifecycle(
+                        crate::tool_progress::capture_tool_progress(
+                            transport,
+                            self.progress.clone(),
+                        ),
+                        lifecycle,
+                    )
                     .boxed(),
                 None,
             ),

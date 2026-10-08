@@ -60,7 +60,7 @@ test("usage is deferred on tool turns and confirmed once on the final turn", asy
   };
   expect(second.status).toBe(200);
   // Two model calls: lookup + its result add ~4 tokens before the final call.
-  expect(final.usage.input_tokens).toBe(8);
+  expect(final.usage.input_tokens).toBe(7);
   expect(final.usage.output_tokens).toBe(3);
   expect(final.usage.cache_creation_input_tokens).toBe(3);
   expect(final.usage.cache_read_input_tokens).toBe(1);

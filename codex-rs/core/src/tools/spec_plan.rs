@@ -120,6 +120,7 @@ struct CoreToolPlanContext<'a> {
 
 #[instrument(level = "trace", skip_all)]
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(crate) fn build_tool_router(
     session: &Session,
     turn_context: &TurnContext,
@@ -130,6 +131,44 @@ pub(crate) fn build_tool_router(
     step_store: &ExtensionData,
     tool_suggest_candidates: Option<&crate::tools::router::ToolSuggestCandidates>,
 ) -> CodexResult<ToolRouter> {
+    let prepared = prepare_tool_router(
+        session,
+        turn_context,
+        model_info,
+        environments,
+        mcp,
+        apps_enabled,
+        step_store,
+        tool_suggest_candidates,
+    );
+    finalize_tool_router(
+        turn_context,
+        model_info,
+        prepared.registry,
+        prepared.hosted_specs,
+        &session.services.tool_search_handler_cache,
+    )
+}
+
+pub(crate) struct PreparedToolRouter {
+    pub(crate) registry: ToolRegistry,
+    pub(crate) hosted_specs: Vec<ToolSpec>,
+    /// MCP tools whose existing policy permits preloading on this mode's surface.
+    pub(crate) selector_eligible_tools: HashSet<ToolName>,
+}
+
+#[instrument(level = "trace", skip_all)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_tool_router(
+    session: &Session,
+    turn_context: &TurnContext,
+    model_info: &ModelInfo,
+    environments: &TurnEnvironmentSnapshot,
+    mcp: &Arc<codex_mcp::McpBinding>,
+    apps_enabled: bool,
+    step_store: &ExtensionData,
+    tool_suggest_candidates: Option<&crate::tools::router::ToolSuggestCandidates>,
+) -> PreparedToolRouter {
     let default_agent_type_description =
         crate::agent::role::spawn_tool_spec::build(&std::collections::BTreeMap::new());
     let wait_for_environment_tool_config = session
@@ -158,7 +197,7 @@ pub(crate) fn build_tool_router(
         model_info.supports_search_tool,
         &mut registry,
     );
-    apply_mcp_tool_exposure_policy(
+    let selector_eligible_tools = apply_mcp_tool_exposure_policy(
         turn_context,
         model_info,
         mcp,
@@ -178,13 +217,11 @@ pub(crate) fn build_tool_router(
         standalone_web_search_tool.as_slice(),
     );
 
-    finalize_tool_router(
-        turn_context,
-        model_info,
+    PreparedToolRouter {
         registry,
         hosted_specs,
-        &session.services.tool_search_handler_cache,
-    )
+        selector_eligible_tools,
+    }
 }
 
 /// Use the effective mode because the model can override the thread's configured mode.
@@ -202,8 +239,9 @@ fn apply_mcp_tool_exposure_policy(
     mcp: &codex_mcp::McpBinding,
     registered_mcp_tools: &HashSet<ToolName>,
     registry: &mut ToolRegistry,
-) {
+) -> HashSet<ToolName> {
     let mut omitted_exposures_by_tool = HashMap::new();
+    let mut selector_eligible_tools = HashSet::new();
     let apps_config = apps_config_from_layer_stack(&turn_context.config.config_layer_stack);
     for tool in mcp.tools() {
         let tool_name = tool.canonical_tool_name();
@@ -249,6 +287,11 @@ fn apply_mcp_tool_exposure_policy(
                     "Ignoring MCP/app omit_tools_from because code_mode_only_strict_3p_tools is enabled"
                 );
             }
+            // Strict mode deliberately ignores these omissions/exclusions. Preload
+            // definitions only: the runtime remains deferred under the same policy.
+            if model_info.supports_search_tool && tool.exposure == ToolExposure::Deferred {
+                selector_eligible_tools.insert(tool_name.with_default_namespace());
+            }
             continue;
         }
         let tool_name = tool_name.with_default_namespace();
@@ -262,6 +305,16 @@ fn apply_mcp_tool_exposure_policy(
                 .contains(namespace)
         }) {
             exposures = exposures.difference(ToolExposures::DEFERRED | ToolExposures::CODE_MODE);
+        }
+
+        // Record eligibility before lazy loading removes DIRECT. Code Mode-only
+        // preloads declarations in exec and requires CODE_MODE rather than DIRECT.
+        let tool_mode = effective_tool_mode(turn_context, model_info);
+        if selector_can_promote(exposures, model_info.supports_search_tool, tool_mode)
+            && (tool_mode != ToolMode::CodeModeOnly
+                || !is_excluded_from_code_mode(turn_context, &tool_name))
+        {
+            selector_eligible_tools.insert(tool_name.clone());
         }
 
         exposures = if model_info.supports_search_tool
@@ -288,6 +341,21 @@ fn apply_mcp_tool_exposure_policy(
             (true, true, _) => unreachable!("direct and deferred exposure are mutually exclusive"),
         };
     }
+    selector_eligible_tools
+}
+
+fn selector_can_promote(
+    exposures: ToolExposures,
+    supports_search_tool: bool,
+    tool_mode: ToolMode,
+) -> bool {
+    supports_search_tool
+        && exposures.contains(ToolExposures::DEFERRED)
+        && exposures.contains(if tool_mode == ToolMode::CodeModeOnly {
+            ToolExposures::CODE_MODE
+        } else {
+            ToolExposures::DIRECT
+        })
 }
 
 #[cfg(test)]
@@ -884,6 +952,7 @@ fn register_code_mode_executors(
         }
 
         let tool_name = tool.runtime.tool_name();
+        let preselected = registry.is_code_mode_preselected(&tool_name);
         // Deferred third-party tools still need an exec route to be discoverable.
         if is_excluded_from_code_mode(turn_context, &tool_name)
             && !(code_mode_only_strict_3p_tools(turn_context, model_info)
@@ -936,7 +1005,7 @@ fn register_code_mode_executors(
             }
         }
 
-        if exposure == ToolExposure::Deferred {
+        if exposure == ToolExposure::Deferred && !preselected {
             if deferred_tools_guidance_enabled
                 && (cached_runtime.is_none() || !included_deferred_mcp_output_schema)
             {

@@ -164,6 +164,165 @@ fn submissions(effects: &[PipelineEffect]) -> Vec<&StageSubmissionView> {
 
 type StageSubmissionView = super::controller::StageSubmission;
 
+fn hud_progress(effects: &[PipelineEffect]) -> &PipelineProgress {
+    effects
+        .iter()
+        .find_map(|effect| match effect {
+            PipelineEffect::Progress(Some(progress)) => Some(progress),
+            _ => None,
+        })
+        .expect("visible pipeline progress")
+}
+
+#[test]
+fn completion_keeps_frozen_progress_and_status_refreshes_stale_evidence() {
+    let fx = Fixture::new();
+    let mut session = PipelineSession::default();
+    session.handle_command(
+        &fx.ctx(false),
+        parse_pipeline_command("run mini-whiteboard topic"),
+    );
+    let mut effects = Vec::new();
+    for (index, output) in [
+        "production/brief.md",
+        "production/script.md",
+        "production/approval.md",
+        "production/render.mp4",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        if index == 2 {
+            let approved =
+                session.handle_command(&fx.ctx(false), parse_pipeline_command("approve"));
+            assert_eq!(submissions(&approved).len(), 1);
+        }
+        assert!(session.stage_in_flight());
+        session.on_turn_started();
+        fx.write(output);
+        effects = session.on_turn_finished(&fx.ctx(false));
+    }
+
+    // Completion releases the execution lifecycle but leaves verified final evidence visible.
+    assert_eq!(session, PipelineSession::default());
+    assert!(submissions(&effects).is_empty());
+    assert!(
+        !effects
+            .iter()
+            .any(|effect| matches!(effect, PipelineEffect::Progress(None)))
+    );
+    let completed = hud_progress(&effects).clone();
+    assert_eq!(completed.done(), 4);
+    assert_eq!(completed.current, None);
+    assert_eq!(completed.paused, None);
+    let clocks = completed
+        .details
+        .iter()
+        .map(|stage| {
+            assert_eq!(stage.status, StageStatus::Done);
+            assert_eq!(stage.recorded, stage.expected);
+            let started = stage.started_at_ms.expect("persisted stage start");
+            let finished = stage.finished_at_ms.expect("fixed stage finish");
+            assert!(finished >= started);
+            (stage.started_at_ms, stage.finished_at_ms)
+        })
+        .collect::<Vec<_>>();
+    let completed_run = codex_overmind_pipelines::RunStore::for_workspace(&fx.workspace)
+        .latest()
+        .expect("completed run");
+    let status = session.handle_command(&fx.ctx(false), parse_pipeline_command("status"));
+    assert_eq!(hud_progress(&status), &completed);
+
+    // A real output change invalidates this stage and its dependents, without rewriting clocks.
+    std::fs::write(fx.workspace.join("production/brief.md"), "changed evidence").unwrap();
+    let status = session.handle_command(&fx.ctx(false), parse_pipeline_command("status"));
+    let stale = hud_progress(&status);
+    assert_eq!(stale.done(), 0);
+    assert_eq!(stale.current.as_deref(), Some("brief-and-mode"));
+    assert!(
+        stale
+            .details
+            .iter()
+            .all(|stage| stage.status == StageStatus::Stale && stage.recorded == stage.expected)
+    );
+    assert_eq!(
+        stale
+            .details
+            .iter()
+            .map(|stage| (stage.started_at_ms, stage.finished_at_ms))
+            .collect::<Vec<_>>(),
+        clocks
+    );
+    assert!(!session.stage_in_flight());
+
+    // A new run replaces the final panel; inspecting an older run cannot replace an active one.
+    let started = session.handle_command(
+        &fx.ctx(false),
+        parse_pipeline_command("run mini-whiteboard another topic"),
+    );
+    assert_eq!(
+        hud_progress(&started).details[0].status,
+        StageStatus::Running
+    );
+    let status = session.handle_command(
+        &fx.ctx(true),
+        parse_pipeline_command(&format!("status {}", completed_run.id())),
+    );
+    assert!(
+        !status
+            .iter()
+            .any(|effect| matches!(effect, PipelineEffect::Progress(_)))
+    );
+    assert!(session.stage_in_flight());
+}
+
+#[test]
+fn hud_details_preserve_stage_timestamps_and_verified_output_evidence() {
+    let fx = Fixture::new();
+    let mut session = PipelineSession::default();
+    let effects = session.handle_command(
+        &fx.ctx(false),
+        parse_pipeline_command("run mini-whiteboard explain cost segregation"),
+    );
+    let current = effects
+        .iter()
+        .find_map(|effect| match effect {
+            PipelineEffect::Progress(Some(progress)) => Some(progress),
+            _ => None,
+        })
+        .expect("run progress");
+    let first = &current.details[0];
+    assert_eq!(first.id, "brief-and-mode");
+    assert_eq!(first.status, StageStatus::Running);
+    let started = first.started_at_ms.expect("stage start timestamp");
+    assert_eq!(first.finished_at_ms, None);
+    assert_eq!(first.expected, vec!["production/brief.md"]);
+    assert!(first.recorded.is_empty());
+
+    session.on_turn_started();
+    fx.write("production/brief.md");
+    let effects = session.on_turn_finished(&fx.ctx(false));
+    let current = effects
+        .iter()
+        .find_map(|effect| match effect {
+            PipelineEffect::Progress(Some(progress)) => Some(progress),
+            _ => None,
+        })
+        .expect("advanced progress");
+    let first = &current.details[0];
+    assert_eq!(first.status, StageStatus::Done);
+    assert_eq!(first.started_at_ms, Some(started));
+    assert!(
+        first
+            .finished_at_ms
+            .is_some_and(|finished| finished >= started)
+    );
+    assert_eq!(first.recorded, first.expected);
+    assert_eq!(current.details[1].status, StageStatus::Running);
+    assert!(current.details[1].started_at_ms.is_some());
+    assert!(current.details[1].recorded.is_empty());
+}
+
 #[test]
 fn parses_subcommands() {
     assert_eq!(parse_pipeline_command(""), PipelineCommand::Overview);
@@ -407,6 +566,9 @@ fn progress(stages: &[(&str, StageStatus)], current: Option<&str>) -> PipelinePr
             .map(|(id, status)| (id.to_string(), *status))
             .collect(),
         current: current.map(str::to_string),
+        details: Vec::new(),
+        paused: None,
+        paused_at_ms: None,
     }
 }
 

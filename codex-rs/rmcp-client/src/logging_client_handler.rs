@@ -26,6 +26,7 @@ use crate::rmcp_client::SendElicitation;
 pub(crate) struct LoggingClientHandler {
     client_info: ClientInfo,
     send_elicitation: Arc<SendElicitation>,
+    pub(crate) progress: crate::tool_progress::ProgressRegistry,
 }
 
 impl LoggingClientHandler {
@@ -33,6 +34,7 @@ impl LoggingClientHandler {
         Self {
             client_info,
             send_elicitation: Arc::new(send_elicitation),
+            progress: Default::default(),
         }
     }
 }
@@ -65,10 +67,7 @@ impl ClientHandler for LoggingClientHandler {
         params: ProgressNotificationParam,
         _context: NotificationContext<RoleClient>,
     ) {
-        info!(
-            "MCP server progress notification (token: {:?}, progress: {}, total: {:?}, message: {:?})",
-            params.progress_token, params.progress, params.total, params.message
-        );
+        self.progress.route(params);
     }
 
     async fn on_resource_updated(

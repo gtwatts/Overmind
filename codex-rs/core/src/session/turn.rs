@@ -56,7 +56,8 @@ use crate::tools::parallel::ToolCallRuntime;
 use crate::tools::registry::ToolArgumentDiffConsumer;
 use crate::tools::router::ToolSuggestCandidates;
 use crate::tools::router::ToolSuggestPresentation;
-use crate::tools::spec_plan::build_tool_router;
+use crate::tools::spec_plan::finalize_tool_router;
+use crate::tools::spec_plan::prepare_tool_router;
 use crate::tools::spec_plan::tool_suggest_enabled;
 use crate::turn_diff_tracker::TurnDiffTracker;
 use crate::turn_timing::record_turn_ttft_metric;
@@ -222,6 +223,7 @@ pub(crate) async fn run_turn(
     }
 
     let user_input = turn_user_input(&input);
+    crate::overmind_tool_selector::record_user_input(turn_context.as_ref(), &user_input);
     let allow_plugin_mentions =
         !crate::guardian::is_basic_session_source(&turn_context.session_source);
     let McpStartupRequirements {
@@ -470,6 +472,10 @@ pub(crate) async fn run_turn(
             }
             Some(_) | None => {
                 let pending_user_input = turn_user_input(&pending_input);
+                crate::overmind_tool_selector::record_user_input(
+                    turn_context.as_ref(),
+                    &pending_user_input,
+                );
                 if allow_plugin_mentions {
                     required_plugins.extend(crate::plugins::collect_explicit_plugin_ids(
                         &pending_user_input,
@@ -1853,7 +1859,7 @@ pub(crate) async fn built_tools(
             .instrument(trace_span!("built_tools.load_discoverable_tools"))
             .await
         };
-    Ok(Arc::new(build_tool_router(
+    let mut prepared = prepare_tool_router(
         sess,
         turn_context,
         model_info,
@@ -1862,6 +1868,20 @@ pub(crate) async fn built_tools(
         apps_enabled,
         step_store,
         tool_suggest_candidates.as_ref(),
+    );
+    crate::overmind_tool_selector::select_for_turn(
+        turn_context,
+        model_info,
+        &mut prepared.registry,
+        &prepared.selector_eligible_tools,
+    )
+    .await;
+    Ok(Arc::new(finalize_tool_router(
+        turn_context,
+        model_info,
+        prepared.registry,
+        prepared.hosted_specs,
+        &sess.services.tool_search_handler_cache,
     )?))
 }
 
@@ -2127,6 +2147,7 @@ pub(super) fn realtime_text_for_event(msg: &EventMsg) -> Option<RealtimeEventTex
         | EventMsg::McpStartupUpdate(_)
         | EventMsg::McpStartupComplete(_)
         | EventMsg::McpToolCallBegin(_)
+        | EventMsg::McpToolCallProgress(_)
         | EventMsg::McpToolCallEnd(_)
         | EventMsg::ElicitationAbandoned(_)
         | EventMsg::WebSearchBegin(_)
