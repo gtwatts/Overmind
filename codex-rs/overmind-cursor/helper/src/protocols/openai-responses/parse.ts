@@ -16,6 +16,7 @@ import type {
 } from "../anthropic/types.js";
 import type { ParsedResponses } from "./types.js";
 import { parseOpenAiToolChoice } from "../tool-choice.js";
+import { parseToolSearchCall, parseToolSearchOutput, parseToolSearchTool } from "./tool-search.js";
 
 const UNSUPPORTED_MEDIA_TYPES = new Set([
   "input_file",
@@ -217,7 +218,6 @@ const OVERMIND_DROPPED_HOSTED_TOOLS = new Set<string>([
   "code_interpreter",
   "local_shell",
   "x_search",
-  "tool_search",
 ]);
 
 function splitResponsesTools(
@@ -255,6 +255,11 @@ function splitResponsesTools(
       if (type === "x_search" || type === "file_search" || type === "computer" || type === "shell" || type === "apply_patch") {
         assertHostedSearchRequest(tool as Record<string, unknown>, mode);
       }
+    }
+    if (tool && typeof tool === "object" && !Array.isArray(tool) && (tool as { type?: unknown }).type === "tool_search") {
+      // Overmind: Codex's client-executed deferred tool discovery.
+      functions.push(parseToolSearchTool(tool as Record<string, unknown>));
+      continue;
     }
     if (tool && typeof tool === "object" && !Array.isArray(tool) && (tool as { type?: unknown }).type === "namespace") {
       // Overmind: Codex sends MCP/app tools as top-level namespace tools.
@@ -391,6 +396,15 @@ function parseInput(input: unknown): {
       continue;
     }
 
+    if (type === "tool_search_output") {
+      // Overmind: tools loaded by tool_search join the executable catalog.
+      flushAssistant();
+      const loaded = parseToolSearchOutput(raw, parseAdditionalTool);
+      additionalTools.push(...loaded.tools);
+      pendingResults.push(loaded.result);
+      continue;
+    }
+
     if (type === "function_call_output" || type === "custom_tool_call_output") {
       flushAssistant();
       pendingResults.push(parseFunctionCallOutput(raw));
@@ -399,6 +413,10 @@ function parseInput(input: unknown): {
 
     flushResults();
 
+    if (type === "tool_search_call") {
+      pendingAssistant.push(parseToolSearchCall(raw));
+      continue;
+    }
     if (type === "function_call" || type === "custom_tool_call") {
       pendingAssistant.push(parseFunctionCall(raw));
       continue;

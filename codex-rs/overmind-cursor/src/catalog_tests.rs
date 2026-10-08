@@ -30,3 +30,17 @@ fn bundled_catalog_uses_codex_base_instructions_and_real_metadata() {
         );
     }
 }
+
+#[test]
+fn bundled_catalog_defers_plugin_tools_behind_tool_search() {
+    // Overmind: Cursor models load plugin/MCP tool schemas on demand through
+    // Codex's client-executed `tool_search`, like OpenAI models, instead of
+    // paying for every plugin schema on every request.
+    let catalog = model_catalog().expect("catalog parses");
+    for model in &catalog.models {
+        assert_eq!(
+            (model.slug.as_str(), model.supports_search_tool),
+            (model.slug.as_str(), true)
+        );
+    }
+}

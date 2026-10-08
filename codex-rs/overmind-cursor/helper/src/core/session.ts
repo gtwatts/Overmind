@@ -1,7 +1,7 @@
 import { sessionId, toolUseId } from "../ids.js";
 import type { Clock } from "../clock.js";
 import type { SdkAgent, SdkCustomToolResult, SdkRun } from "../sdk/port.js";
-import type { AssistantTurn } from "../protocols/anthropic/types.js";
+import type { AssistantTurn, ToolKind } from "../protocols/anthropic/types.js";
 import type { CursorAgentTurn } from "./cursor-agent-turn.js";
 import type { EventPump } from "./event-pump.js";
 import { DEFAULT_RUNTIME_PROFILE, type RuntimeProfile } from "./runtime-profile.js";
@@ -20,7 +20,7 @@ export interface PendingCall {
   toolUseId: string;
   name: string;
   input: unknown;
-  toolKind?: "function" | "custom";
+  toolKind?: ToolKind;
   namespace?: string;
   createdAt: number;
   resolved: boolean;
@@ -101,7 +101,7 @@ export class Session {
     input: unknown,
     clock: Clock,
     explicitId?: string,
-    toolKind?: "function" | "custom",
+    toolKind?: ToolKind,
     namespace?: string,
   ): PendingCall {
     let resolve!: (value: SdkCustomToolResult) => void;

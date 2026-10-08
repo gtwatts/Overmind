@@ -14,6 +14,7 @@ import {
   textOf,
 } from "./encode.js";
 import { beginResponsesSse, writeResponsesEvent, writeResponsesStreamError } from "./sse.js";
+import { encodeToolSearchCallItem } from "./tool-search.js";
 
 export function createResponsesWriterFactory(): TurnWriterFactory {
   return (ctx) => new ResponsesTurnWriter(ctx);
@@ -108,7 +109,8 @@ class ResponsesTurnWriter implements TurnWriter {
       (block): block is Extract<AnthropicContentBlock, { type: "tool_use" }> => block.type === "tool_use",
     );
     for (const block of tools) {
-      if (block.tool_kind === "custom") this.emitCustomToolCall(block);
+      if (block.tool_kind === "tool_search") this.emitToolSearchCall(block);
+      else if (block.tool_kind === "custom") this.emitCustomToolCall(block);
       else this.emitFunctionCall(block);
     }
   }
@@ -220,6 +222,18 @@ class ResponsesTurnWriter implements TurnWriter {
     this.emit("response.output_item.done", {
       output_index: outputIndex,
       item: encodeFunctionCallItem(block),
+    });
+  }
+
+  private emitToolSearchCall(block: Extract<AnthropicContentBlock, { type: "tool_use" }>): void {
+    const outputIndex = this.nextOutputIndex++;
+    this.emit("response.output_item.added", {
+      output_index: outputIndex,
+      item: encodeToolSearchCallItem(block, "in_progress"),
+    });
+    this.emit("response.output_item.done", {
+      output_index: outputIndex,
+      item: encodeToolSearchCallItem(block),
     });
   }
 

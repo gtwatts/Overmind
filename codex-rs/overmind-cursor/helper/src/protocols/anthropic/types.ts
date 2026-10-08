@@ -1,3 +1,6 @@
+/** Overmind: `tool_search` is Codex's client-executed deferred tool discovery. */
+export type ToolKind = "function" | "custom" | "tool_search";
+
 export type AnthropicRole = "user" | "assistant" | "system" | "developer" | "tool" | "function";
 
 export type AnthropicContentBlock =
@@ -12,7 +15,7 @@ export type AnthropicContentBlock =
       id: string;
       name: string;
       input: unknown;
-      tool_kind?: "function" | "custom";
+      tool_kind?: ToolKind;
       namespace?: string;
     }
   | {
@@ -31,7 +34,7 @@ export interface AnthropicTool {
   name: string;
   description?: string;
   input_schema?: Record<string, unknown>;
-  tool_kind?: "function" | "custom";
+  tool_kind?: ToolKind;
   sdk_name?: string;
   namespace?: string;
 }

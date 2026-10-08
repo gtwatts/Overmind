@@ -51,7 +51,7 @@
         "text",
         "image"
       ],
-      "supports_search_tool": false,
+      "supports_search_tool": true,
       "supports_experimental_context": false,
       "use_responses_lite": false,
       "supports_reasoning_effort_updates": false,
@@ -109,7 +109,7 @@
         "text",
         "image"
       ],
-      "supports_search_tool": false,
+      "supports_search_tool": true,
       "supports_experimental_context": false,
       "use_responses_lite": false,
       "supports_reasoning_effort_updates": false,
@@ -150,7 +150,7 @@
         "text",
         "image"
       ],
-      "supports_search_tool": false,
+      "supports_search_tool": true,
       "supports_experimental_context": false,
       "use_responses_lite": false,
       "supports_reasoning_effort_updates": false,
@@ -204,7 +204,7 @@
         "text",
         "image"
       ],
-      "supports_search_tool": false,
+      "supports_search_tool": true,
       "supports_experimental_context": false,
       "use_responses_lite": false,
       "supports_reasoning_effort_updates": false,
@@ -258,7 +258,7 @@
         "text",
         "image"
       ],
-      "supports_search_tool": false,
+      "supports_search_tool": true,
       "supports_experimental_context": false,
       "use_responses_lite": false,
       "supports_reasoning_effort_updates": false,
@@ -312,7 +312,7 @@
         "text",
         "image"
       ],
-      "supports_search_tool": false,
+      "supports_search_tool": true,
       "supports_experimental_context": false,
       "use_responses_lite": false,
       "supports_reasoning_effort_updates": false,
@@ -374,7 +374,7 @@
         "text",
         "image"
       ],
-      "supports_search_tool": false,
+      "supports_search_tool": true,
       "supports_experimental_context": false,
       "use_responses_lite": false,
       "supports_reasoning_effort_updates": false,

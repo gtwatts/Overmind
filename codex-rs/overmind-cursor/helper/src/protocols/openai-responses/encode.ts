@@ -1,6 +1,7 @@
 import { responseId } from "../../ids.js";
 import type { AnthropicContentBlock, AssistantTurn } from "../anthropic/types.js";
 import type { ResponsesStatus } from "./types.js";
+import { encodeToolSearchCallItem } from "./tool-search.js";
 
 export interface ResponsesUsage {
   input_tokens: number;
@@ -114,7 +115,13 @@ export function encodeResponsesOutput(turn: AssistantTurn): Record<string, unkno
   if (text) output.push(encodeMessageItem(turn.messageId, text));
   for (const block of turn.blocks) {
     if (block.type === "tool_use") {
-      output.push(block.tool_kind === "custom" ? encodeCustomToolCallItem(block) : encodeFunctionCallItem(block));
+      output.push(
+        block.tool_kind === "tool_search"
+          ? encodeToolSearchCallItem(block)
+          : block.tool_kind === "custom"
+            ? encodeCustomToolCallItem(block)
+            : encodeFunctionCallItem(block),
+      );
     }
   }
   return output;
