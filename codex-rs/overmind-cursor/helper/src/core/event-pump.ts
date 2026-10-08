@@ -3,7 +3,7 @@ import { emptyTurn, sdkFailure, timeoutError, upstreamError } from "../errors.js
 import { messageId } from "../ids.js";
 import type { AnthropicContentBlock, AssistantTurn } from "../protocols/anthropic/types.js";
 import type { SdkDeltaUpdate, SdkRun, SdkStreamEvent } from "../sdk/port.js";
-import { deferredUsage, fromSdkUsage } from "./usage.js";
+import { StepUsageTracker } from "./step-usage.js";
 import type { PendingCall, Session } from "./session.js";
 
 export type PumpBoundary =
@@ -37,6 +37,8 @@ export class EventPump {
   /** Once official onDelta is seen, ignore stream assistant/thinking snapshots. */
   private preferOnDelta = false;
   private segmentMessageId = messageId();
+  /** Overmind: per-step usage so Codex sees context size, not run totals. */
+  private readonly stepUsage = new StepUsageTracker();
 
   constructor(
     private readonly session: Session,
@@ -123,7 +125,8 @@ export class EventPump {
   ingestDelta(update: SdkDeltaUpdate): void {
     if (update.type === "turn-ended") {
       this.firstEvent = true;
-      // Per-turn usage is diagnostic only. Cumulative usage is confirmed via run.wait().
+      // Overmind: per-step usage drives Codex's context %; run.wait() keeps the total.
+      this.stepUsage.record(update.usage);
       return;
     }
     if (update.type !== "text-delta" && update.type !== "thinking-delta") return;
@@ -193,7 +196,7 @@ export class EventPump {
           model: this.session.modelId,
           stopReason: "end_turn",
           blocks,
-          usage: fromSdkUsage(result.usage),
+          usage: this.stepUsage.forFinal(result.usage),
         },
       });
     } catch (error) {
@@ -250,7 +253,7 @@ export class EventPump {
         model: this.session.modelId,
         stopReason: "tool_use",
         blocks,
-        usage: deferredUsage(),
+        usage: this.stepUsage.forToolBatch(),
       },
     });
   }
