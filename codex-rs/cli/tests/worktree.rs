@@ -239,6 +239,7 @@ trust_level = "trusted"
     anyhow::ensure!(
         Command::new(&program)
             .env("CODEX_HOME", &home)
+            .env("OVERMIND_SHARED_DAEMON", "allow")
             .arg("--version")
             .output()?
             .status
@@ -247,6 +248,7 @@ trust_level = "trusted"
     );
     let mut env: HashMap<String, String> = std::env::vars().collect();
     env.insert("CODEX_HOME".into(), home.display().to_string());
+    env.insert("OVERMIND_SHARED_DAEMON".into(), "allow".into());
     env.insert("CODEX_SQLITE_HOME".into(), home.display().to_string());
     env.insert("NO_PROXY".into(), "127.0.0.1,localhost".into());
     env.insert("no_proxy".into(), "127.0.0.1,localhost".into());

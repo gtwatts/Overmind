@@ -194,6 +194,8 @@ async fn daemon_startup(command: &str) -> Result<()> {
         home.path().display().to_string(),
     );
     env.insert("TERM".into(), "xterm-256color".into());
+    // Overmind: these tests exercise the upstream shared daemon, which Overmind disables by default.
+    env.insert("OVERMIND_SHARED_DAEMON".into(), "allow".into());
     let mut args = vec!["--no-alt-screen".to_string()];
     let mut steps: VecDeque<(&str, &[u8])> = VecDeque::new();
     if matches!(command, "start" | "bedrock-running" | "restrictive-job") || mismatch {
