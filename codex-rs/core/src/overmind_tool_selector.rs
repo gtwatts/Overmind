@@ -34,6 +34,7 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 const CONFIG_FILE: &str = "overmind.toml";
 const MODEL: &str = "gpt-6-luna";
@@ -89,6 +90,7 @@ enum SelectorError {
     Credentials,
     InputTooLarge,
     ClientSetup,
+    Cancelled,
     Timeout,
     Transport,
     Http(u16),
@@ -104,6 +106,7 @@ impl SelectorError {
             Self::Credentials => "missing_credentials".to_string(),
             Self::InputTooLarge => "input_too_large".to_string(),
             Self::ClientSetup => "client_setup".to_string(),
+            Self::Cancelled => "cancelled".to_string(),
             Self::Timeout => "timeout".to_string(),
             Self::Transport => "transport".to_string(),
             Self::Http(status) => format!("http_{status}"),
@@ -118,6 +121,7 @@ struct TurnSelectorState {
     // Deliberately no Debug: the query and cache keys are not diagnostics.
     query: String,
     cache: Mutex<Option<CachedSelection>>,
+    superseded: CancellationToken,
 }
 
 struct CachedSelection {
@@ -231,12 +235,18 @@ pub(crate) fn record_user_input(turn: &TurnContext, input: &[UserInput]) {
         return;
     }
     let query = match turn.extension_data.get::<TurnSelectorState>() {
-        Some(previous) => format!("{}\n\n{text}", previous.query),
+        Some(previous) => {
+            // An old speculative preparation may still own the previous state.
+            // Its response is obsolete as soon as steering changes the query.
+            previous.superseded.cancel();
+            format!("{}\n\n{text}", previous.query)
+        }
         None => text,
     };
     turn.extension_data.insert(TurnSelectorState {
         query,
         cache: Mutex::new(None),
+        superseded: CancellationToken::new(),
     });
 }
 
@@ -256,7 +266,18 @@ pub(crate) async fn select_for_turn(
         return;
     }
     let started = Instant::now();
-    let config = match load_config(turn.config.codex_home.as_path()).await {
+    let started_at = tokio::time::Instant::now();
+    // The configured deadline cannot be known before reading this file. Bound
+    // bootstrap I/O by the default budget, then include that time in its value.
+    let config = tokio::select! {
+        biased;
+        _ = state.superseded.cancelled() => return,
+        result = tokio::time::timeout(
+            Duration::from_millis(SelectorConfig::default().timeout_ms),
+            load_config(turn.config.codex_home.as_path()),
+        ) => result.unwrap_or(Err(SelectorError::Timeout)),
+    };
+    let config = match config {
         Ok(config) => config,
         Err(error) => {
             emit_outcome(
@@ -297,33 +318,59 @@ pub(crate) async fn select_for_turn(
         return;
     }
     let metrics = AttemptMetrics::default();
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(config.timeout_ms);
+    let deadline = started_at + Duration::from_millis(config.timeout_ms);
     let result = async {
-        let key = cache_key(&config, &state.query, &candidates)?;
+        // Resolve credentials before cache lookup so a repaired or rotated key
+        // can recover from a cached authentication failure in this same turn.
+        let api_key = tokio::select! {
+            biased;
+            _ = state.superseded.cancelled() => return Err(SelectorError::Cancelled),
+            result = tokio::time::timeout_at(
+                deadline,
+                load_key(&config, turn.config.codex_home.as_path()),
+            ) => result.map_err(|_| SelectorError::Timeout)??,
+        };
+        let key = cache_key(&config, &state.query, &candidates, &api_key)?;
         // Speculative and normal preparation can overlap. Keep one request in
         // flight for this turn/catalog, and cache failures as well as success.
-        let mut cache = tokio::time::timeout_at(deadline, state.cache.lock())
-            .await
-            .map_err(|_| SelectorError::Timeout)?;
+        let mut cache = tokio::select! {
+            biased;
+            _ = state.superseded.cancelled() => return Err(SelectorError::Cancelled),
+            result = tokio::time::timeout_at(deadline, state.cache.lock()) => {
+                result.map_err(|_| SelectorError::Timeout)?
+            },
+        };
         if let Some(cached) = cache.as_ref()
             && cached.key == key
             && cached.recorded_at.elapsed() < Duration::from_secs(config.cache_ttl_secs)
         {
             return Ok((cached.result.clone(), true, cached.usage.clone()));
         }
-        let result = tokio::time::timeout_at(
-            deadline,
-            request_selection(
-                &config,
-                turn.config.codex_home.as_path(),
-                &turn.config.http_client_factory(),
-                &state.query,
-                &candidates,
-                &metrics,
-            ),
-        )
-        .await
-        .unwrap_or(Err(SelectorError::Timeout));
+        // Dropping preparation cancels its HTTP futures. Leave a fallback entry
+        // first, so a retry does not repeat an already possibly billable request.
+        *cache = Some(CachedSelection {
+            key: key.clone(),
+            recorded_at: Instant::now(),
+            result: Err(SelectorError::Cancelled),
+            usage: None,
+        });
+        let factory = turn.config.http_client_factory();
+        let result = tokio::select! {
+            biased;
+            _ = state.superseded.cancelled() => Err(SelectorError::Cancelled),
+            result = tokio::time::timeout_at(
+                deadline,
+                request_selection(
+                    &config,
+                    &factory,
+                    &state.query,
+                    &candidates,
+                    &api_key,
+                    deadline,
+                    &metrics,
+                ),
+            ) => result.unwrap_or(Err(SelectorError::Timeout)),
+        };
         *cache = Some(CachedSelection {
             key,
             recorded_at: Instant::now(),
@@ -362,6 +409,19 @@ pub(crate) async fn select_for_turn(
             return;
         }
     };
+    if state.superseded.is_cancelled() {
+        emit_outcome(
+            &config,
+            &[],
+            candidates.len(),
+            metrics.request_count(),
+            cache_hit,
+            Some(SelectorError::Cancelled),
+            usage.as_ref(),
+            started,
+        );
+        return;
+    }
     apply_selection(
         registry,
         eligible,
@@ -535,6 +595,9 @@ fn validate_config(config: &SelectorConfig) -> Result<(), SelectorError> {
 }
 
 async fn read_bounded_file(path: &Path) -> std::io::Result<String> {
+    if !tokio::fs::metadata(path).await?.is_file() {
+        return Err(std::io::Error::other("file is not a regular file"));
+    }
     let file = tokio::fs::File::open(path).await?;
     let mut bytes = Vec::new();
     file.take((MAX_FILE_BYTES + 1) as u64)
@@ -617,13 +680,19 @@ fn cache_key(
     config: &SelectorConfig,
     query: &str,
     candidates: &[Candidate],
+    api_key: &str,
 ) -> Result<Vec<u8>, SelectorError> {
     let bytes = serde_json::to_vec(&json!({"config": config, "query": query, "tools": candidates}))
         .map_err(|_| SelectorError::InputTooLarge)?;
     if bytes.len() > MAX_INPUT_BYTES {
         return Err(SelectorError::InputTooLarge);
     }
-    Ok(Sha1::digest(bytes).to_vec())
+    let mut digest = Sha1::new();
+    digest.update(bytes);
+    // Credentials affect cache identity without being retained or serialized.
+    digest.update(b"\0credential\0");
+    digest.update(api_key.as_bytes());
+    Ok(digest.finalize().to_vec())
 }
 
 fn request_body(
@@ -653,13 +722,16 @@ fn request_body(
 
 async fn request_selection(
     config: &SelectorConfig,
-    codex_home: &Path,
     factory: &HttpClientFactory,
     query: &str,
     candidates: &[Candidate],
+    api_key: &str,
+    deadline: tokio::time::Instant,
     metrics: &AttemptMetrics,
 ) -> Result<Selection, SelectorError> {
-    let api_key = load_key(config, codex_home).await?;
+    if tokio::time::Instant::now() >= deadline {
+        return Err(SelectorError::Timeout);
+    }
     let client = HttpClientBuilder::new()
         .without_redirects()
         .without_request_logging()
@@ -681,12 +753,16 @@ async fn request_selection(
         .collect::<Result<Vec<_>, SelectorError>>()?;
     let mut batches = stream::iter(requests.into_iter().map(|(body, count, offset)| {
         let client = client.clone();
-        let api_key = api_key.clone();
         async move {
+            // Queued batches must not start new API work after setup or earlier
+            // batches exhaust the whole-attempt deadline.
+            if tokio::time::Instant::now() >= deadline {
+                return Err(SelectorError::Timeout);
+            }
             metrics.request_count.fetch_add(1, Ordering::Relaxed);
             request_batch(
                 &client,
-                &api_key,
+                api_key,
                 &config.endpoint,
                 &body,
                 count,

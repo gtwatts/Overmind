@@ -48,6 +48,7 @@ import {
   sessionPolicyFingerprintFromParsed,
 } from "./session-policy.js";
 import { toLedgerUsage } from "./usage.js";
+import { RunUsageLineage } from "./usage-lineage.js";
 import { headerValue } from "../server/http-util.js";
 import type { SandLoaderHealth } from "../sdk/sand-loader.js";
 import { sandWorkspaceDir } from "../sdk/sand-paths.js";
@@ -63,6 +64,11 @@ interface FollowUpOptions {
   agent?: SdkAgentSource;
   afterAgentReady?: () => void;
   failureReason?: string;
+}
+
+interface UsageReplacement {
+  session: Session;
+  retirement: Promise<void>;
 }
 
 export interface CoordinatorDeps {
@@ -684,6 +690,7 @@ export class RunCoordinator {
 
     const lookup = this.deps.registry.lookupByToolIds(ids);
     let routingError: GatewayError | undefined;
+    let usageReplacement: UsageReplacement | undefined;
     if (lookup.mixed) {
       routingError = sessionConflict("tool_use_id values belong to different sessions");
     } else if (lookup.session && lookup.missing.length > 0) {
@@ -703,7 +710,14 @@ export class RunCoordinator {
         // Overmind: Codex's tool list can change mid-turn (an MCP server finishes
         // starting, a plugin connects). Drop the parked agent and rebuild the turn
         // from the full client transcript with the new tool catalog.
-        this.deps.registry.forget(lookup.session, "tool_catalog_changed");
+        this.deps.registry.requireLive(lookup.session, ids);
+        this.assertModelIdentity(lookup.session, auth, parsed);
+        this.assertBoundProfile(req, lookup.session);
+        lookup.session.usageLineage.recovered = true;
+        usageReplacement = {
+          session: lookup.session,
+          retirement: this.deps.registry.retireForReplacement(lookup.session, "tool_catalog_changed"),
+        };
         routingError = sessionLost("tool catalog changed; rebuilding from transcript");
       } else {
         try {
@@ -748,7 +762,7 @@ export class RunCoordinator {
         }
       }
     }
-    await this.recoverFromTranscript(req, res, auth, parsed, results, requestId, writerFactory, routingError);
+    await this.recoverFromTranscript(req, res, auth, parsed, results, requestId, writerFactory, routingError, usageReplacement);
   }
 
   private async continueLiveSession(
@@ -826,6 +840,7 @@ export class RunCoordinator {
     requestId: string,
     writerFactory: TurnWriterFactory,
     routingError?: GatewayError,
+    usageReplacement?: UsageReplacement,
   ): Promise<void> {
     let recovery: ReturnType<typeof buildTranscriptRecovery>;
     try {
@@ -841,7 +856,7 @@ export class RunCoordinator {
     const key = `${auth.fingerprint}:${recovery.digest}`;
     let entry = this.transcriptRecoveries.get(key);
     if (!entry) {
-      const promise = this.openTranscriptRecovery(auth, parsed, results, recovery);
+      const promise = this.openTranscriptRecovery(auth, parsed, results, recovery, usageReplacement);
       entry = {
         expiresAt: now + this.deps.config.replayTtlMs,
         promise,
@@ -862,7 +877,18 @@ export class RunCoordinator {
     parsed: ParsedMessages,
     results: ParsedToolResult[],
     recovery: ReturnType<typeof buildTranscriptRecovery>,
+    usageReplacement?: UsageReplacement,
   ): Promise<{ session: Session; pump: EventPump }> {
+    // Register the recovery promise before yielding, so identical retries share
+    // both the replacement run and its retired usage lineage.
+    await usageReplacement?.retirement;
+    if (usageReplacement) {
+      this.persistLedgerBoundary(usageReplacement.session, {
+        type: "error",
+        error: new Error("tool_catalog_changed"),
+        runUsage: usageReplacement.session.pump?.settledRunUsage(),
+      });
+    }
     const profile = this.requestProfileFromAuth(auth);
     const session = this.deps.registry.create({
       credentialFingerprint: auth.fingerprint,
@@ -883,6 +909,7 @@ export class RunCoordinator {
           agent: { type: "create", apiKey: auth.cursorApiKey, workspaceDir: this.workspaceFor(profile) },
           send: { text: recovery.prompt, images: parsed.images },
           completedResults: recovery.completedResults,
+          usageLineage: usageReplacement?.session.usageLineage ?? RunUsageLineage.unknownRecovery(),
         },
         this.logicalKeyFor(auth, parsed),
       );
@@ -989,6 +1016,7 @@ export class RunCoordinator {
             workspaceDir: this.workspaceFor(boundProfile),
           },
           send: { text: recoveredToolResultPrompt(record, results), force: true },
+          usageLineage: RunUsageLineage.unknownRecovery(),
         },
         this.logicalKeyFor(auth, parsed),
       );
@@ -1502,6 +1530,7 @@ export class RunCoordinator {
           sessionId: session.sessionId,
         }),
         state: "error",
+        usage: toLedgerUsage(boundary.runUsage),
       });
     } catch {
       this.deps.logger.warn({ session_id: session.sessionId }, "runtime ledger persist failed");

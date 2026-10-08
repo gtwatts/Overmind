@@ -18,6 +18,7 @@ export class SessionRegistry {
   readonly sessions = new Map<string, Session>();
   readonly toolIndex = new Map<string, string>();
   readonly expiredToolIds = new Map<string, number>();
+  private readonly replacementRetirements = new WeakMap<Session, Promise<void>>();
   shuttingDown = false;
 
   constructor(
@@ -131,6 +132,24 @@ export class SessionRegistry {
   }
 
   forget(session: Session, reason: string): void {
+    void session.run?.cancel().catch(() => undefined);
+    this.removeSession(session, reason);
+    this.closeAgent(session);
+  }
+
+  /** Catalog replacement may recover terminal usage flushed after cancellation. */
+  retireForReplacement(session: Session, reason: string): Promise<void> {
+    const existing = this.replacementRetirements.get(session);
+    if (existing) return existing;
+    const retirement = session.pump?.retireForReplacement() ?? Promise.resolve();
+    if (!session.pump) void session.run?.cancel().catch(() => undefined);
+    this.removeSession(session, reason);
+    const result = retirement.finally(() => this.closeAgent(session));
+    this.replacementRetirements.set(session, result);
+    return result;
+  }
+
+  private removeSession(session: Session, reason: string): void {
     // In-memory only. Completed lineage files stay until their own TTL so a
     // later process can Agent.resume. Pending records also stay until TTL for
     // exact persisted recovery; a complete transcript may cold-branch later.
@@ -140,19 +159,21 @@ export class SessionRegistry {
       this.toolIndex.delete(id);
       this.expiredToolIds.set(id, expireAt);
     }
-    void session.run?.cancel().catch(() => undefined);
     for (const pending of session.pending.values()) {
       if (pending.resolved) continue;
       pending.resolved = true;
       pending.reject(Object.assign(new Error(reason), { name: "SessionClosedError" }));
     }
+    session.markClosed(reason);
+    this.sessions.delete(session.sessionId);
+  }
+
+  private closeAgent(session: Session): void {
     try {
       session.agent?.close();
     } catch {
       // best-effort
     }
-    session.markClosed(reason);
-    this.sessions.delete(session.sessionId);
   }
 
   sweep(): void {

@@ -5,6 +5,7 @@ import type { AssistantTurn, ToolKind } from "../protocols/anthropic/types.js";
 import type { CursorAgentTurn } from "./cursor-agent-turn.js";
 import type { EventPump } from "./event-pump.js";
 import { DEFAULT_RUNTIME_PROFILE, type RuntimeProfile } from "./runtime-profile.js";
+import { RunUsageLineage } from "./usage-lineage.js";
 
 export type SessionState =
   | "creating"
@@ -55,6 +56,7 @@ export class Session {
   readonly earlyCalls: PendingCall[] = [];
   replay?: ReplayRecord;
   usageConfirmed = false;
+  usageLineage = new RunUsageLineage();
   /** Overmind: estimated Cursor context size after the last completed run. */
   contextTokens?: number;
   hasSemanticOutput = false;

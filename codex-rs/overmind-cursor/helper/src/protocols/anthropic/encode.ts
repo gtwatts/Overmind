@@ -30,5 +30,6 @@ export function encodeUsage(turn: AssistantTurn): Record<string, unknown> {
   if (typeof turn.usage.cache_read_input_tokens === "number") {
     usage.cache_read_input_tokens = turn.usage.cache_read_input_tokens;
   }
+  if (turn.usage.lineage_usage) usage.lineage_usage = turn.usage.lineage_usage;
   return usage;
 }

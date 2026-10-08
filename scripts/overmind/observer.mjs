@@ -10,6 +10,8 @@ const usageFields = [
   'cache_creation_input_tokens', 'run_input_tokens', 'run_output_tokens',
   'run_cache_read_input_tokens', 'run_cache_creation_input_tokens', 'run_reasoning_output_tokens', 'model_steps',
 ];
+const lineageFields = ['input_tokens', 'output_tokens', 'cache_read_input_tokens',
+  'cache_creation_input_tokens', 'reasoning_tokens', 'model_steps', 'covered_model_steps', 'run_count', 'missing_runs'];
 
 export function safeUsage(value) {
   if (!value || typeof value !== 'object') return null;
@@ -21,6 +23,13 @@ export function safeUsage(value) {
   if (Number.isFinite(value.output_tokens_details?.reasoning_tokens)) result.reasoning_output_tokens = value.output_tokens_details.reasoning_tokens;
   if (['sdk', 'unavailable', 'deferred'].includes(value.usage_status)) result.usage_status = value.usage_status;
   if (value.usage_deferred === true) result.usage_deferred = true;
+  if (value.lineage_usage && typeof value.lineage_usage === 'object') {
+    result.lineage_usage = {};
+    for (const field of lineageFields) {
+      if (Number.isSafeInteger(value.lineage_usage[field]) && value.lineage_usage[field] >= 0) result.lineage_usage[field] = value.lineage_usage[field];
+    }
+    if (typeof value.lineage_usage.complete === 'boolean') result.lineage_usage.complete = value.lineage_usage.complete;
+  }
   return result;
 }
 
@@ -239,6 +248,30 @@ export function usageSummary(records, provider) {
   }
   // Cursor exposes SDK totals at the end of a run, and estimates between calls.
   // Never add estimates to a final run total or label missing usage as zero.
+  const lineage = supplied.filter((record) => record.has_agent_message && record.usage.lineage_usage).at(-1)?.usage.lineage_usage;
+  if (lineage) {
+    // Each snapshot is cumulative across the same recovered run lineage. Use
+    // only the latest, and independently compare coverage to observed calls.
+    const counter = (field) => Number.isSafeInteger(lineage[field]) && lineage[field] >= 0 ? lineage[field] : null;
+    const input = counter('input_tokens');
+    const cached = counter('cache_read_input_tokens');
+    const writes = counter('cache_creation_input_tokens');
+    const output = counter('output_tokens');
+    return {
+      source: 'cursor_sdk_lineage_totals', complete: responses.length > 0 && responses.every((record) => record.completed)
+        && lineage.complete === true && counter('missing_runs') === 0 && counter('run_count') > 0
+        && counter('covered_model_steps') === responses.length && counter('model_steps') === responses.length
+        && [input, cached, writes, output].every(Number.isFinite),
+      covered_model_steps: counter('covered_model_steps'), model_steps: counter('model_steps'),
+      sdk_run_count: counter('run_count'), missing_sdk_runs: counter('missing_runs'),
+      sdk_input_tokens: input, sdk_cache_read_input_tokens: cached, sdk_cache_creation_input_tokens: writes,
+      input_tokens: input !== null && cached !== null && writes !== null ? input + cached + writes : null,
+      cached_input_tokens: cached, uncached_input_tokens: input !== null && writes !== null ? input + writes : null,
+      output_tokens: output, sdk_reasoning_output_tokens: counter('reasoning_tokens'), cache_write_input_tokens: writes,
+      responses_with_deferred_or_unavailable_usage: responses.length - supplied.length,
+      note: 'Exact cumulative SDK components from the latest recovered run lineage; intermediate estimates and earlier cumulative snapshots are excluded. Missing counters or incomplete retirement keep totals partial. SDK input, cache reads, and cache writes are additive.',
+    };
+  }
   const finals = supplied.filter((record) => record.has_agent_message && Number.isFinite(record.usage.run_input_tokens) && Number.isFinite(record.usage.run_output_tokens));
   const raw = finals.map(({ usage }) => ({
     input_tokens: usage.run_input_tokens,
@@ -255,7 +288,7 @@ export function usageSummary(records, provider) {
   const output = raw.length ? sum(raw, 'output_tokens') : null;
   return {
     source: 'cursor_sdk_completed_run_totals', complete: responses.length > 0 && responses.every((record) => record.completed)
-      && covered >= responses.length && [input, cached, writes, output].every(Number.isFinite),
+      && covered === responses.length && [input, cached, writes, output].every(Number.isFinite),
     covered_model_steps: covered,
     sdk_input_tokens: input, sdk_cache_read_input_tokens: cached, sdk_cache_creation_input_tokens: writes,
     input_tokens: input !== null && cached !== null && writes !== null ? input + cached + writes : null,

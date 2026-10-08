@@ -43,13 +43,19 @@ With direct tools, chosen definitions are exposed immediately. With OpenAI's
 `functions.exec` interface; MCP tools remain deferred and keep their execution
 mode. Other tools remain available through ordinary lazy discovery (`ALL_TOOLS`
 in native code mode; `tool_search` where enabled). An unchanged turn reuses its
-selection; steering or changes to the catalog or selector settings invalidate it.
+selection; steering or changes to the catalog, credentials or selector settings
+invalidate it. Repairing a missing key or rotating a rejected key can recover in
+the same turn. Steering cancels obsolete selection work. Cancelled preparation
+falls back to lazy discovery without automatically repeating a possibly billed
+request for the unchanged turn and catalog.
 
 Missing credentials, an empty result, refusal, timeout, HTTP errors, invalid or
 partial replies, and local resource limits all preserve ordinary lazy loading.
 The deadline covers the whole selection operation. Local limits are 512 tools,
 1 MiB of serialized input, batches of 64 questions and at most four concurrent
 batches. These are Overmind resource limits, not advertised Decisions API limits.
+Configuration loading has an initial two-second bound before its configured
+deadline is known. Configuration and key paths must resolve to regular files.
 
 Set `enabled = false` to return to plain lazy loading. Selector diagnostics use
 the `overmind::tool_selector` tracing target and include counts, selected tool
@@ -88,6 +94,8 @@ false` to hide the HUD and panel.
 
 See the [2026-10-08 candidate report](validation-2026-10-08.md) for recorded
 checks, build inputs and live comparison limits.
+The [candidate packaging guide](candidate-installation.md) describes private,
+versioned bundles, verification and later activation or rollback.
 
 The harness uses the actual Overmind executable, isolated homes and a local MCP
 fixture with 24 harmless fact tools. Fresh challenge values prove that correct
@@ -121,6 +129,9 @@ each. The three task types cover a single required tool, complementary tools and
 similar distractor tools. Paired reports include actual calls, answer correctness,
 wall time, model usage and selector usage. Small fixture measurements do not
 establish a general speed or cost advantage. Missing counters remain unknown.
+An explicit `--tasks coding` run instead asks the model to fix a small Python
+project, run its tests and use a fresh MCP fact. Independent verification checks
+the current source against unchanged tests and the fresh fact.
 
 Cursor's exact SDK run counters are separate from its estimated current context.
 SDK input, cache reads and cache writes are additive; OpenAI-compatible input

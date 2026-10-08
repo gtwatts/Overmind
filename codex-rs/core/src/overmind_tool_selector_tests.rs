@@ -288,6 +288,8 @@ async fn query_capture_reads_only_user_text_and_resets_cache_for_steering() {
         .expect("steered state");
     assert_eq!(steered.query, "Original task\n\nUse the calendar too");
     assert!(steered.cache.lock().await.is_none());
+    assert!(first.superseded.is_cancelled());
+    assert!(!steered.superseded.is_cancelled());
 }
 
 #[test]
@@ -852,6 +854,280 @@ async fn catalog_or_query_change_invalidates_selection_cache() {
     record_user_input(&turn, &[user_text("Also check tomorrow")]);
     let (mut registry, eligible) = fixture_registry();
     select_for_turn(&turn, &model, &mut registry, &eligible).await;
+}
+
+#[tokio::test]
+async fn credential_rotation_recovers_cached_authentication_failure_in_same_turn() {
+    let server = MockServer::start().await;
+    let (home, turn, model) = configured_turn(&server).await;
+    Mock::given(method("POST"))
+        .and(header("authorization", "Bearer fixture-key"))
+        .respond_with(ResponseTemplate::new(401))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(header("authorization", "Bearer rotated-fixture-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(answers(&[0.1, 0.95])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (mut registry, eligible) = fixture_registry();
+    let before = exposures(&registry);
+    select_for_turn(&turn, &model, &mut registry, &eligible).await;
+    assert_eq!(exposures(&registry), before);
+    std::fs::write(
+        home.path().join("test-key.env"),
+        "OPENMIND_TEST_SELECTOR_KEY='rotated-fixture-key'\n",
+    )
+    .expect("rotate fixture credential");
+    let (mut registry, eligible) = fixture_registry();
+    select_for_turn(&turn, &model, &mut registry, &eligible).await;
+    assert_eq!(
+        exposures(&registry)[&tool_name("weather")],
+        ToolExposure::Direct
+    );
+    // The rotated result is still cached; key rotation does not disable reuse.
+    let (mut registry, eligible) = fixture_registry();
+    select_for_turn(&turn, &model, &mut registry, &eligible).await;
+    assert_eq!(server.received_requests().await.expect("requests").len(), 2);
+}
+
+#[tokio::test]
+async fn creating_a_missing_credential_recovers_without_steering_or_config_change() {
+    let server = MockServer::start().await;
+    let (home, turn, model) = configured_turn(&server).await;
+    let mut config = load_config(home.path()).await.expect("fixture config");
+    let key_path = home.path().join("repaired-key.env");
+    config.key_file = Some(key_path.clone());
+    write_config(home.path(), &config);
+    Mock::given(method("POST"))
+        .and(header("authorization", "Bearer repaired-fixture-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(answers(&[0.1, 0.95])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (mut registry, eligible) = fixture_registry();
+    let before = exposures(&registry);
+    select_for_turn(&turn, &model, &mut registry, &eligible).await;
+    assert_eq!(exposures(&registry), before);
+    std::fs::write(
+        &key_path,
+        "OPENMIND_TEST_SELECTOR_KEY='repaired-fixture-key'\n",
+    )
+    .expect("repair fixture credential");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600))
+            .expect("private repaired credential");
+    }
+    let (mut registry, eligible) = fixture_registry();
+    select_for_turn(&turn, &model, &mut registry, &eligible).await;
+    assert_eq!(
+        exposures(&registry)[&tool_name("weather")],
+        ToolExposure::Direct
+    );
+}
+
+#[tokio::test]
+async fn dropped_in_flight_preparation_does_not_repeat_a_billable_selection() {
+    let server = MockServer::start().await;
+    let (_home, turn, model) = configured_turn(&server).await;
+    let requested = Arc::new(tokio::sync::Notify::new());
+    let notify = Arc::clone(&requested);
+    Mock::given(method("POST"))
+        .respond_with(move |_: &wiremock::Request| {
+            notify.notify_one();
+            ResponseTemplate::new(200)
+                .set_body_json(answers(&[0.1, 0.95]))
+                .set_delay(Duration::from_millis(800))
+        })
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (mut registry, eligible) = fixture_registry();
+    let before = exposures(&registry);
+    let mut selection = Box::pin(select_for_turn(&turn, &model, &mut registry, &eligible));
+    tokio::select! {
+        _ = requested.notified() => {}
+        _ = &mut selection => panic!("selection must still be waiting for its HTTP response"),
+    }
+    drop(selection);
+    assert_eq!(exposures(&registry), before);
+    let state = turn
+        .extension_data
+        .get::<TurnSelectorState>()
+        .expect("state");
+    assert!(matches!(
+        state
+            .cache
+            .lock()
+            .await
+            .as_ref()
+            .expect("cached cancellation")
+            .result,
+        Err(SelectorError::Cancelled)
+    ));
+    let (mut registry, eligible) = fixture_registry();
+    select_for_turn(&turn, &model, &mut registry, &eligible).await;
+    assert_eq!(exposures(&registry), before);
+    assert_eq!(server.received_requests().await.expect("requests").len(), 1);
+}
+
+#[tokio::test]
+async fn overlapping_preparations_share_one_in_flight_request_and_success() {
+    let server = MockServer::start().await;
+    let (_home, turn, model) = configured_turn(&server).await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(answers(&[0.1, 0.95]))
+                .set_delay(Duration::from_millis(50)),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (mut first, eligible) = fixture_registry();
+    let (mut second, _) = fixture_registry();
+    tokio::join!(
+        select_for_turn(&turn, &model, &mut first, &eligible),
+        select_for_turn(&turn, &model, &mut second, &eligible),
+    );
+    for registry in [&first, &second] {
+        assert_eq!(
+            exposures(registry)[&tool_name("weather")],
+            ToolExposure::Direct
+        );
+    }
+    assert_eq!(server.received_requests().await.expect("requests").len(), 1);
+}
+
+#[tokio::test]
+async fn steering_cancels_obsolete_http_work_and_never_promotes_its_tools() {
+    let server = MockServer::start().await;
+    let (_home, turn, model) = configured_turn(&server).await;
+    let requested = Arc::new(tokio::sync::Notify::new());
+    let notify = Arc::clone(&requested);
+    Mock::given(method("POST"))
+        .respond_with(move |request: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&request.body).expect("request");
+            let input: Value = serde_json::from_str(body["input"].as_str().expect("input"))
+                .expect("catalog input");
+            if input["user_query"]
+                .as_str()
+                .expect("query")
+                .contains("calendar instead")
+            {
+                ResponseTemplate::new(200).set_body_json(answers(&[0.95, 0.1]))
+            } else {
+                notify.notify_one();
+                ResponseTemplate::new(200)
+                    .set_body_json(answers(&[0.1, 0.95]))
+                    .set_delay(Duration::from_millis(800))
+            }
+        })
+        .expect(2)
+        .mount(&server)
+        .await;
+    let (mut registry, eligible) = fixture_registry();
+    let before = exposures(&registry);
+    let mut selection = Box::pin(select_for_turn(&turn, &model, &mut registry, &eligible));
+    tokio::select! {
+        _ = requested.notified() => {}
+        _ = &mut selection => panic!("obsolete selection must still be waiting"),
+    }
+    record_user_input(&turn, &[user_text("Use the calendar instead")]);
+    tokio::time::timeout(Duration::from_millis(200), selection)
+        .await
+        .expect("steering promptly cancels obsolete HTTP work");
+    assert_eq!(exposures(&registry), before);
+    let (mut registry, eligible) = fixture_registry();
+    select_for_turn(&turn, &model, &mut registry, &eligible).await;
+    let actual = exposures(&registry);
+    assert_eq!(actual[&tool_name("calendar")], ToolExposure::Direct);
+    assert_eq!(actual[&tool_name("weather")], ToolExposure::Deferred);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn non_regular_config_and_key_files_fail_without_waiting_for_fifo_data() {
+    use std::ffi::CString;
+    use std::os::fd::FromRawFd;
+    use std::os::fd::OwnedFd;
+    use std::os::unix::ffi::OsStrExt;
+
+    for filename in [CONFIG_FILE, "key.env"] {
+        let home = tempfile::tempdir().expect("FIFO fixture home");
+        let path = home.path().join(filename);
+        let c_path = CString::new(path.as_os_str().as_bytes()).expect("path without NUL");
+        // SAFETY: c_path remains alive and libc does not retain this pointer.
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        // Keep a writer open so the old blocking read can be released even when
+        // the regression assertion fails; the test must never strand a thread.
+        // SAFETY: c_path is valid and the returned fd is owned below on success.
+        let fd = unsafe {
+            libc::open(
+                c_path.as_ptr(),
+                libc::O_RDWR | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        };
+        assert!(fd >= 0, "fixture FIFO must open");
+        // SAFETY: fd is a newly opened valid descriptor, owned exactly once.
+        let writer = unsafe { OwnedFd::from_raw_fd(fd) };
+        let result = tokio::time::timeout(Duration::from_millis(200), async {
+            if filename == CONFIG_FILE {
+                load_config(home.path()).await.map(|_| ())
+            } else {
+                let config = SelectorConfig {
+                    key_file: Some(path),
+                    api_key_env: "OPENMIND_TEST_SELECTOR_KEY".to_string(),
+                    ..Default::default()
+                };
+                load_key(&config, home.path()).await.map(|_| ())
+            }
+        })
+        .await;
+        drop(writer);
+        assert_eq!(
+            result.expect("FIFO reads must not wait for data"),
+            Err(if filename == CONFIG_FILE {
+                SelectorError::Config
+            } else {
+                SelectorError::Credentials
+            })
+        );
+    }
+}
+
+#[tokio::test]
+async fn expired_attempt_deadline_sends_no_http_batches() {
+    let server = MockServer::start().await;
+    let (home, turn, _) = configured_turn(&server).await;
+    let config = load_config(home.path()).await.expect("fixture config");
+    let (registry, eligible) = fixture_registry();
+    let candidates = collect_candidates(&registry, &eligible).expect("catalog");
+    let metrics = AttemptMetrics::default();
+    let factory = turn.config.http_client_factory();
+    let result = request_selection(
+        &config,
+        &factory,
+        "Get the weather",
+        &candidates,
+        "fixture-key",
+        tokio::time::Instant::now(),
+        &metrics,
+    )
+    .await;
+    assert!(matches!(result, Err(SelectorError::Timeout)));
+    assert_eq!(metrics.request_count(), 0);
+    assert!(
+        server
+            .received_requests()
+            .await
+            .expect("requests")
+            .is_empty()
+    );
 }
 
 #[tokio::test]

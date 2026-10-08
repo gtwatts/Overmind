@@ -27,6 +27,15 @@ and tool correctness, but plain Cursor discovery can replace an SDK run before i
 reported. Final raw counters then cover only the replacement run. Full Cursor token/cost
 comparisons remain unknown rather than treating those partial counters as a complete turn.
 
+The subsequent refinement adds bounded retirement for live catalog replacement. It waits up
+to 500 ms for the existing SDK consumer to settle before closing the retired agent, preserving
+available cumulative SDK counters by run identity. Final Responses usage can include a separate
+`lineage_usage` object across replacement runs; ordinary context estimates and final `run_*`
+counters retain their original per-run meaning. Duplicate retries do not add the same run twice,
+and a new user turn resets its lineage. Cold recovery, missing counters and unsettled retirement
+remain explicitly partial. The observer also requires coverage to match actual model requests
+before comparing complete turn totals. Local recovery regressions cover these cases.
+
 ## Summary
 
 | Measurement | Input tokens |

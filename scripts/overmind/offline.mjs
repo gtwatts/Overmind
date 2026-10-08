@@ -32,11 +32,17 @@ function eventStream(items, requestIndex) {
   return events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
 }
 
+export function currentTurnInputs(inputs) {
+  const start = inputs.findLastIndex((item) => item.role === 'user' && (!item.type || item.type === 'message'));
+  return start < 0 ? inputs : inputs.slice(start);
+}
+
 export async function startMockApis({ scenario, ticket, seed, taskId = 'single', maxModelRequests = 8 }) {
   if (!Number.isInteger(maxModelRequests) || maxModelRequests < 1 || maxModelRequests > 24) {
     throw new Error('Owned mock requires a model request limit between 1 and 24.');
   }
   let modelRequests = 0;
+  const runTag = randomBytes(4).toString('hex');
   let selectorRequests = 0;
   let websocketAttempts = 0;
   const selectorInventories = [];
@@ -57,7 +63,7 @@ export async function startMockApis({ scenario, ticket, seed, taskId = 'single',
     const body = JSON.parse(Buffer.concat(chunks));
     modelRequests += 1;
     if (modelRequests > maxModelRequests) { response.writeHead(429); response.end(); return; }
-    const inputs = Array.isArray(body.input) ? body.input : [];
+    const inputs = currentTurnInputs(Array.isArray(body.input) ? body.input : []);
     const called = inputs.some((item) => ['function_call_output', 'custom_tool_call_output'].includes(item.type) && String(item.call_id).startsWith('offline-lookup'));
     const searched = inputs.some((item) => item.type === 'tool_search_output'
       || item.type === 'custom_tool_call_output' && String(item.call_id).startsWith('offline-catalog'));
@@ -71,22 +77,22 @@ export async function startMockApis({ scenario, ticket, seed, taskId = 'single',
       items = [{ type: 'message', role: 'assistant', id: `msg-${modelRequests}`, content: [{ type: 'output_text', text }] }];
     } else if (preloaded || searched) {
       if (inventory.code_mode_exec_available) {
-        items = [{ type: 'custom_tool_call', call_id: `offline-lookup-${modelRequests}`, name: 'exec',
+        items = [{ type: 'custom_tool_call', call_id: `offline-lookup-${runTag}-${modelRequests}`, name: 'exec',
           input: task.requiredTools.map((name) => `text(await tools.mcp__fixture__${name}(${JSON.stringify({ ticket })}));`).join('\n') }];
       } else {
-        items = task.requiredTools.map((name, index) => ({ type: 'function_call', call_id: `offline-lookup-${modelRequests}-${index}`, namespace: 'mcp__fixture', name, arguments: JSON.stringify({ ticket }) }));
+        items = task.requiredTools.map((name, index) => ({ type: 'function_call', call_id: `offline-lookup-${runTag}-${modelRequests}-${index}`, namespace: 'mcp__fixture', name, arguments: JSON.stringify({ ticket }) }));
       }
     } else {
       if (inventory.code_mode_exec_available) {
         const names = task.requiredTools.map((name) => `mcp__fixture__${name}`);
-        items = [{ type: 'custom_tool_call', call_id: `offline-catalog-${modelRequests}`, name: 'exec',
+        items = [{ type: 'custom_tool_call', call_id: `offline-catalog-${runTag}-${modelRequests}`, name: 'exec',
           input: `text(ALL_TOOLS.filter(({ name }) => ${JSON.stringify(names)}.includes(name)));` }];
       } else {
-        items = [{ type: 'tool_search_call', call_id: `offline-search-${modelRequests}`, execution: 'client', arguments: { query: task.requiredTools.join(' ') } }];
+        items = [{ type: 'tool_search_call', call_id: `offline-search-${runTag}-${modelRequests}`, execution: 'client', arguments: { query: task.requiredTools.join(' ') } }];
       }
     }
     response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
-    response.end(eventStream(items, modelRequests));
+    response.end(eventStream(items, `${runTag}-${modelRequests}`));
   });
   const decisions = http.createServer(async (request, response) => {
     if (request.method !== 'POST' || request.url !== '/v1/decisions') { response.writeHead(404); response.end(); return; }

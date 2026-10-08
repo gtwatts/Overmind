@@ -9,6 +9,7 @@ import type {
 import { EventPump } from "./event-pump.js";
 import type { Session } from "./session.js";
 import { mapClientTools } from "./tool-bridge.js";
+import { RunUsageLineage } from "./usage-lineage.js";
 
 export type SdkAgentSource =
   | { type: "create"; apiKey: string; workspaceDir: string }
@@ -25,6 +26,8 @@ export interface DriveSdkRunInput {
     force?: boolean;
   };
   completedResults?: Map<string, SdkCustomToolResult[]>;
+  /** Carry only same-turn catalog replacement/recovery usage into this send. */
+  usageLineage?: RunUsageLineage;
   afterAgentReady?: (agent: SdkAgent) => void;
 }
 
@@ -65,6 +68,7 @@ export class SdkRunDriver {
     const { session } = input;
     session.run = undefined;
     session.pump = undefined;
+    session.usageLineage = input.usageLineage ?? new RunUsageLineage();
     const customTools = mapClientTools(
       input.tools,
       session,

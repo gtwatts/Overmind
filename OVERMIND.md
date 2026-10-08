@@ -215,6 +215,8 @@ the matching active call, with a percentage only when the server reports a valid
 See [Decisions selection and TUI progress](docs/overmind/decisions-tui.md) for configuration,
 fallback behavior and validation tools, and the
 [candidate validation report](docs/overmind/validation-2026-10-08.md) for recorded checks.
+The [local candidate guide](docs/overmind/candidate-installation.md) covers versioned
+development bundles, verification and a later trial or rollback.
 
 ### Per-turn Decisions tool selection
 

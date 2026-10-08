@@ -2,15 +2,18 @@ import type { Clock } from "../clock.js";
 import { emptyTurn, sdkFailure, timeoutError, upstreamError } from "../errors.js";
 import { messageId } from "../ids.js";
 import type { AnthropicContentBlock, AssistantTurn, UsageView } from "../protocols/anthropic/types.js";
-import type { SdkDeltaUpdate, SdkRun, SdkStreamEvent } from "../sdk/port.js";
+import type { SdkDeltaUpdate, SdkRun, SdkStreamEvent, SdkUsage } from "../sdk/port.js";
 import { resultChars, StepUsageTracker } from "./step-usage.js";
 import type { PendingCall, Session } from "./session.js";
 import { fromSdkUsage } from "./usage.js";
+import type { RunUsageLineage } from "./usage-lineage.js";
+
+const RETIRE_USAGE_DEADLINE_MS = 500;
 
 export type PumpBoundary =
   | { type: "tools"; turn: AssistantTurn }
   | { type: "final"; turn: AssistantTurn; runUsage?: UsageView }
-  | { type: "error"; error: unknown };
+  | { type: "error"; error: unknown; runUsage?: UsageView };
 
 export type DeltaRecord = { kind: "text" | "thinking"; text: string };
 
@@ -40,6 +43,10 @@ export class EventPump {
   private segmentMessageId = messageId();
   /** Overmind: per-step usage so Codex sees context size, not run totals. */
   private readonly stepUsage: StepUsageTracker;
+  private readonly usageLineage: RunUsageLineage;
+  private retirement?: Promise<void>;
+  private runSettled = false;
+  private terminalUsage?: SdkUsage;
 
   constructor(
     private readonly session: Session,
@@ -49,11 +56,41 @@ export class EventPump {
     private readonly firstEventTimeoutMs: number,
   ) {
     this.stepUsage = new StepUsageTracker(session.contextTokens);
+    // Capture this turn's lineage. A later user send can reuse the Session.
+    this.usageLineage = session.usageLineage;
+    this.usageLineage.record(run.id, undefined, 0, false);
   }
 
   start(): void {
     if (this.consumer) return;
     this.consumer = this.loop();
+  }
+
+  /** Cancel once and let the existing stream/wait consumer collect terminal usage. */
+  retireForReplacement(): Promise<void> {
+    if (this.retirement) return this.retirement;
+    this.start();
+    const cancellation = Promise.resolve().then(() => this.run.cancel());
+    this.retirement = (async () => {
+      const deadline = new AbortController();
+      try {
+        await Promise.race([
+          Promise.allSettled([cancellation, this.consumer]),
+          this.clock.sleep(RETIRE_USAGE_DEADLINE_MS, deadline.signal).catch(() => undefined),
+        ]);
+        if (!this.runSettled) {
+          this.usageLineage.record(this.run.id, this.readUsage(), this.stepUsage.steps, false);
+        }
+      } finally {
+        deadline.abort();
+      }
+    })();
+    return this.retirement;
+  }
+
+  /** Raw terminal SDK usage only; never the last-step context estimate. */
+  settledRunUsage(): UsageView | undefined {
+    return this.runSettled && this.terminalUsage ? fromSdkUsage(this.terminalUsage) : undefined;
   }
 
   attach(sink: ResponseSink): void {
@@ -171,6 +208,11 @@ export class EventPump {
       // Stream EOF is progress; do not empty-fail before wait().
       this.firstEvent = true;
       const result = await this.run.wait();
+      this.terminalUsage = result.usage ?? this.readUsage();
+      this.runSettled = true;
+      if (this.finished || result.status !== "finished") {
+        this.usageLineage.record(this.run.id, this.terminalUsage, this.stepUsage.steps, true);
+      }
       if (this.finished) return;
       if (result.status === "error") {
         this.fail(sdkFailure(result.error?.message ?? "SDK run error"));
@@ -197,6 +239,8 @@ export class EventPump {
       }
       this.session.hasSemanticOutput = true;
       const usage = this.stepUsage.forFinal(result.usage);
+      this.usageLineage.record(this.run.id, this.terminalUsage, this.stepUsage.steps, true);
+      if (this.usageLineage.recovered) usage.view.lineage_usage = this.usageLineage.snapshot();
       if (usage.contextTokens !== undefined) this.session.contextTokens = usage.contextTokens;
       if (process.env.OVERMIND_USAGE_DEBUG === "1") {
         console.log(JSON.stringify({ msg: "overmind run usage", total: result.usage, reported: usage.view }));
@@ -215,10 +259,19 @@ export class EventPump {
         },
       });
     } catch (error) {
+      this.usageLineage.record(this.run.id, this.readUsage(), this.stepUsage.steps, false);
       this.fail(sdkFailure(error));
     } finally {
       this.finished = true;
       void firstTimer;
+    }
+  }
+
+  private readUsage(): SdkUsage | undefined {
+    try {
+      return this.run.usage;
+    } catch {
+      return undefined;
     }
   }
 
@@ -263,6 +316,8 @@ export class EventPump {
         ...(call.namespace ? { namespace: call.namespace } : {}),
       });
     }
+    const usage = this.stepUsage.forToolBatch();
+    this.usageLineage.record(this.run.id, undefined, this.stepUsage.steps, false);
     this.publish({
       type: "tools",
       turn: {
@@ -271,14 +326,14 @@ export class EventPump {
         model: this.session.modelId,
         stopReason: "tool_use",
         blocks,
-        usage: this.stepUsage.forToolBatch(),
+        usage,
       },
     });
   }
 
   private fail(error: unknown): void {
     this.error = error;
-    this.publish({ type: "error", error });
+    this.publish({ type: "error", error, runUsage: this.settledRunUsage() });
   }
 
   private publish(boundary: PumpBoundary): void {

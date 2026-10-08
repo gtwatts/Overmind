@@ -1,6 +1,6 @@
 import { responseId } from "../../ids.js";
 import { totalInputTokens } from "../../core/usage.js";
-import type { AnthropicContentBlock, AssistantTurn } from "../anthropic/types.js";
+import type { AnthropicContentBlock, AssistantTurn, LineageUsageView } from "../anthropic/types.js";
 import type { ResponsesStatus } from "./types.js";
 import { encodeToolSearchCallItem } from "./tool-search.js";
 
@@ -20,6 +20,7 @@ export interface ResponsesUsage {
   run_cache_creation_input_tokens?: number;
   run_reasoning_output_tokens?: number;
   model_steps?: number;
+  lineage_usage?: LineageUsageView;
 }
 
 export function encodeResponsesUsage(turn: AssistantTurn): ResponsesUsage {
@@ -52,6 +53,7 @@ export function encodeResponsesUsage(turn: AssistantTurn): ResponsesUsage {
     usage.run_reasoning_output_tokens = turn.usage.run_reasoning_output_tokens;
   }
   if (typeof turn.usage.model_steps === "number") usage.model_steps = turn.usage.model_steps;
+  if (turn.usage.lineage_usage) usage.lineage_usage = turn.usage.lineage_usage;
   return usage;
 }
 

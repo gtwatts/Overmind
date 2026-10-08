@@ -69,6 +69,17 @@ four observed MCP calls. Jobs run sequentially and stop at the first failure.
 `--openai-model`, `--cursor-model`, `--timeout-ms`, `--max-requests`, and `--output`
 can narrow the run. The plan rejects more than 24 jobs. Arm order reverses on the
 second repetition, and each pair shares its own fresh ticket and private seed.
+`--helper-dir /absolute/path/to/candidate/cursor-helper` selects the packaged
+helper for an actual bundle trial instead of the checkout's helper build.
+
+For a real coding check, explicitly select `--tasks coding --max-jobs 4`.
+Each arm receives a fresh isolated Python project with a known failing baseline.
+The model must repair the implementation, preserve its tests, run the standalone
+`python3 -m unittest -q` command successfully, and use a fresh MCP dispatch code.
+The runner independently verifies the current source using a fresh bytecode
+cache path, checks the unchanged test file, and validates the fresh code. Only a
+recognized test-command boolean and exit status are retained from shell events.
+The default three read-only tasks are unchanged.
 
 The live defaults are OpenAI `gpt-6.1-sol`, Cursor `composer-2.5`, and Decisions
 `gpt-6-luna`. Provider model metadata determines native tool mode. The selector
@@ -116,3 +127,10 @@ intermediate Responses usage from final totals. Missing usage remains `null`;
 interrupted runs may have incomplete totals and cannot support paired token
 claims. Timings and the small fixture sample do not establish a general speed
 or quality improvement.
+When a live catalog change replaces an SDK run, the helper also reports exact
+`lineage_usage` components after bounded retirement. The observer uses only the
+latest cumulative snapshot and checks that covered steps equal observed model
+calls. Missing counters, cold recovery or unresolved retirement remain partial.
+
+See [local candidate packaging](../../docs/overmind/candidate-installation.md)
+for the dependency-free packager and its separate tests.

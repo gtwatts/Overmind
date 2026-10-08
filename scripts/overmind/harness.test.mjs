@@ -1,14 +1,59 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat, utimes, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 import test from 'node:test';
 import { factsFor, serveFixture, taskFor, TOOLS } from './fixture-mcp.mjs';
-import { buildPlan, evaluateResult, parseEnv, prepareFixture, redact, sanitizedEvent, selectorOutcomes } from './live-ab.mjs';
+import { buildPlan, evaluateResult, parseEnv, prepareFixture, pythonUnitTestCommand, redact, sanitizedEvent, selectorOutcomes } from './live-ab.mjs';
 import { nestedToolMeasurements, requestToolInventory, safeUsage, sseUsageCollector, startObserver, toolInventory, usageSummary, validateDestination } from './observer.mjs';
-import { startMockApis } from './offline.mjs';
+import { currentTurnInputs, startMockApis } from './offline.mjs';
+import { codingTask, prepareCodingProject, verifyCodingProject } from './coding-fixture.mjs';
+
+test('coding gate rejects the original bug, checks a real fix, and rejects changed tests', async () => {
+  const project = await mkdtemp(path.join(tmpdir(), 'overmind-coding-gate-'));
+  const code = 'DISP-ABCDEF123456';
+  await prepareCodingProject(project);
+  assert.equal((await verifyCodingProject(project, code)).passed, false);
+  await writeFile(path.join(project, 'dispatch.py'), 'import re\ndef format_dispatch(code):\n    if not isinstance(code, str) or re.fullmatch(r"DISP-[0-9A-F]{12}", code) is None:\n        raise ValueError("Invalid dispatch code")\n    return "dispatch:" + code\n');
+  assert.equal((await verifyCodingProject(project, code)).passed, true);
+  // Leave a timestamp/size-valid bytecode cache, then corrupt the same source.
+  assert.equal(spawnSync('python3', ['-m', 'py_compile', 'dispatch.py'], { cwd: project }).status, 0);
+  const sourcePath = path.join(project, 'dispatch.py');
+  const previous = await stat(sourcePath);
+  const source = await readFile(sourcePath, 'utf8');
+  await writeFile(sourcePath, source.replace('"dispatch:" + code', '"dispatch!" + code'));
+  await utimes(sourcePath, previous.atime, previous.mtime);
+  assert.equal((await verifyCodingProject(project, code)).passed, false);
+  await writeFile(path.join(project, 'test_dispatch.py'), '# removed the tests\n');
+  assert.equal((await verifyCodingProject(project, code)).test_fixture_unchanged, false);
+  assert.equal(codingTask('nonce-ticket').prompt.includes(code), false);
+  assert.equal(buildPlan({ tasks: ['coding'] }).length, 4);
+});
+
+test('resumed mock turns require a fresh lookup rather than replaying a previous tool result', () => {
+  const previous = { type: 'function_call_output', call_id: 'offline-lookup-old', output: 'old result' };
+  const user = { type: 'message', role: 'user', content: 'new request' };
+  const latest = { type: 'custom_tool_call_output', call_id: 'offline-lookup-new', output: 'new result' };
+  assert.deepEqual(currentTurnInputs([previous, user]), [user]);
+  assert.deepEqual(currentTurnInputs([previous, user, latest]), [user, latest]);
+  assert.deepEqual(currentTurnInputs([latest]), [latest]);
+});
+
+test('coding evidence recognizes a successful unittest command without retaining shell text', () => {
+  for (const command of ['python3 -m unittest -q', '/bin/bash -lc \'python3 -m unittest -q\'', '/usr/bin/bash -lc "python3 -m unittest -q"']) {
+    assert.equal(pythonUnitTestCommand(command), true);
+  }
+  for (const command of ['cat dispatch.py', 'echo python3 -m unittest -q', 'false && python3 -m unittest -q || true', 'python3 -m unittest -q; true']) {
+    assert.equal(pythonUnitTestCommand(command), false);
+  }
+  const event = sanitizedEvent({ type: 'item.completed', item: { type: 'command_execution', command: 'python3 -m unittest -q', exit_code: 0 } }, []);
+  assert.equal(event.item.python_unit_tests, true);
+  assert.equal(event.item.exit_code, 0);
+  assert.equal(event.item.command, undefined);
+});
 
 test('credential parsing treats shell syntax as data and never needs OAuth copying', () => {
   const text = '# OPENAI_API_KEY=no\nexport OPENAI_API_KEY="first"\nOTHER=ignored\nOPENAI_API_KEY=second # comment\n';
@@ -157,6 +202,45 @@ test('OpenAI accounting keeps missing usage unknown and reports uncached input c
   assert.equal(usageSummary(records, 'openai').complete, false);
   assert.equal(usageSummary([], 'openai').complete, false);
   assert.equal(usageSummary([], 'cursor').complete, false);
+});
+
+test('Cursor lineage accounting uses the latest cumulative totals and verifies full call coverage', () => {
+  const lineage = { input_tokens: 120, output_tokens: 30, cache_read_input_tokens: 700,
+    cache_creation_input_tokens: 60, reasoning_tokens: 5, model_steps: 3, covered_model_steps: 3,
+    run_count: 2, missing_runs: 0, complete: true };
+  const records = [
+    { kind: 'responses', completed: true, usage: { input_tokens: 900, output_tokens: 7, usage_status: 'sdk' } },
+    { kind: 'responses', completed: true, has_agent_message: true, usage: { usage_status: 'sdk', lineage_usage: { ...lineage, input_tokens: 80 } } },
+    { kind: 'responses', completed: true, has_agent_message: true, usage: { usage_status: 'sdk', model_steps: 2,
+      run_input_tokens: 100, run_output_tokens: 20, run_cache_read_input_tokens: 600,
+      run_cache_creation_input_tokens: 50, lineage_usage: lineage } },
+  ];
+  const usage = usageSummary(records, 'cursor');
+  assert.equal(usage.source, 'cursor_sdk_lineage_totals');
+  assert.equal(usage.complete, true);
+  assert.equal(usage.sdk_input_tokens, 120);
+  assert.equal(usage.input_tokens, 880);
+  assert.equal(usage.uncached_input_tokens, 180);
+  assert.equal(usage.output_tokens, 30);
+  lineage.complete = false;
+  assert.equal(usageSummary(records, 'cursor').complete, false);
+  lineage.complete = true;
+  lineage.covered_model_steps = 2;
+  assert.equal(usageSummary(records, 'cursor').complete, false);
+  lineage.covered_model_steps = 3;
+  lineage.missing_runs = 1;
+  assert.equal(usageSummary(records, 'cursor').complete, false);
+  lineage.missing_runs = 0;
+  delete lineage.cache_creation_input_tokens;
+  assert.equal(usageSummary(records, 'cursor').input_tokens, null);
+  assert.equal(usageSummary(records, 'cursor').complete, false);
+});
+
+test('lineage measurement retains only nonnegative integer counters and a strict boolean', () => {
+  const measured = safeUsage({ lineage_usage: { input_tokens: 10, output_tokens: -1,
+    model_steps: 1.5, run_count: '2', complete: 'true', secret: 'do-not-retain' } });
+  assert.deepEqual(measured, { lineage_usage: { input_tokens: 10 } });
+  assert.equal(JSON.stringify(measured).includes('do-not-retain'), false);
 });
 
 test('selector trace parsing supports native formatting and removes unrelated trace fields', () => {

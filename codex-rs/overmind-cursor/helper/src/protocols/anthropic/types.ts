@@ -52,6 +52,20 @@ export interface AnthropicMessagesRequest {
   cursor_model_params?: Array<{ id: string; value: string }>;
 }
 
+/** Raw SDK components across replacement runs, separate from context estimates. */
+export interface LineageUsageView {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+  reasoning_tokens?: number;
+  model_steps: number;
+  covered_model_steps: number;
+  run_count: number;
+  missing_runs: number;
+  complete: boolean;
+}
+
 export interface UsageView {
   input_tokens: number;
   output_tokens: number;
@@ -67,6 +81,7 @@ export interface UsageView {
   run_cache_creation_input_tokens?: number;
   run_reasoning_output_tokens?: number;
   model_steps?: number;
+  lineage_usage?: LineageUsageView;
 }
 
 export interface AssistantTurn {
