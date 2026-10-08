@@ -186,13 +186,15 @@ pub(super) async fn run_main_inner(
         .await;
     }
 
-    let mut daemon_exclusion = daemon_startup::exclusion(
-        &cli,
-        &cli_kv_overrides,
-        &launch_loader_overrides,
-        workload_identity_selected,
-        std::env::var_os(codex_exec_server::CODEX_EXEC_SERVER_URL_ENV_VAR).as_deref(),
-    );
+    // Overmind: never adopt or start the stock shared daemon; serve every provider embedded.
+    let mut daemon_exclusion =
+        crate::overmind::server::daemon_exclusion(daemon_startup::exclusion(
+            &cli,
+            &cli_kv_overrides,
+            &launch_loader_overrides,
+            workload_identity_selected,
+            std::env::var_os(codex_exec_server::CODEX_EXEC_SERVER_URL_ENV_VAR).as_deref(),
+        ));
     let reuse_implicit_local_daemon = daemon_exclusion.is_none();
     let search_only_config_override = !workload_identity_selected
         && cli.web_search
@@ -510,14 +512,6 @@ pub(super) async fn run_main_inner(
         && !cli.agents_overview
         && !cli.no_daemon
         && !app_server_target.uses_remote_workspace();
-    // Overmind: the shared daemon is the stock Codex binary, which has no Cursor provider.
-    if daemon_exclusion.is_none()
-        && !matches!(app_server_target, AppServerTarget::Remote { .. })
-        && crate::overmind::requires_embedded_server(&config.model_provider_id)
-    {
-        daemon_exclusion = Some("a Cursor model");
-        app_server_target = AppServerTarget::Embedded;
-    }
     if auto_start_daemon
         && daemon_exclusion.is_none()
         && should_show_bedrock_setup_wizard(
@@ -609,7 +603,9 @@ pub(super) async fn run_main_inner(
         .or(compatibility_warning)
         .or_else(|| {
             daemon_exclusion
-            .filter(|_| auto_start_daemon)
+            .filter(|reason| {
+                auto_start_daemon && crate::overmind::server::exclusion_needs_warning(reason)
+            })
             .map(|reason| {
                 format!(
                     "Running without the shared background server: {reason} requires embedded mode."
@@ -676,6 +672,7 @@ pub(super) async fn run_main_inner(
     }
     let selection_reason = match (&app_server_target, daemon_exclusion) {
         (AppServerTarget::Remote { .. }, _) => "explicit_remote",
+        (_, Some(crate::overmind::server::EMBEDDED_ONLY_REASON)) => "overmind_embedded",
         _ if cli.agents_overview => "agents",
         _ if elevated_warning.is_some() => "elevated_windows",
         (_, Some("--no-daemon")) => "explicit_no_daemon",

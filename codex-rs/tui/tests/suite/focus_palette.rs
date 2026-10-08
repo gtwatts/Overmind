@@ -311,12 +311,40 @@ impl PtyCodex {
         )
     }
 
+    /// Overmind: launch without the shared-daemon opt-out, as a user would.
+    pub(super) fn start_overmind_default(
+        repo_root: &Path,
+        codex_home: TempDir,
+        extra_args: &[&str],
+    ) -> Result<Self> {
+        let codex = codex_utils_cargo_bin::cargo_bin("codex-tui")
+            .or_else(|_| codex_utils_cargo_bin::cargo_bin("codex"))?;
+        Self::spawn(
+            &codex, repo_root, codex_home, extra_args, /*editor*/ None,
+            /*allow_shared_daemon*/ false,
+        )
+    }
+
     fn start_binary(
         codex: &Path,
         repo_root: &Path,
         codex_home: TempDir,
         extra_args: &[&str],
         editor: Option<&Path>,
+    ) -> Result<Self> {
+        // Overmind: upstream suites exercise the shared daemon, which Overmind disables by default.
+        Self::spawn(
+            codex, repo_root, codex_home, extra_args, editor, /*allow_shared_daemon*/ true,
+        )
+    }
+
+    fn spawn(
+        codex: &Path,
+        repo_root: &Path,
+        codex_home: TempDir,
+        extra_args: &[&str],
+        editor: Option<&Path>,
+        allow_shared_daemon: bool,
     ) -> Result<Self> {
         let mut master_fd = -1;
         let mut slave_fd = -1;
@@ -352,6 +380,11 @@ impl PtyCodex {
         let mut command = Command::new(codex);
         if let Some(editor) = editor {
             command.env("VISUAL", editor);
+        }
+        if allow_shared_daemon {
+            command.env("OVERMIND_SHARED_DAEMON", "allow");
+        } else {
+            command.env_remove("OVERMIND_SHARED_DAEMON");
         }
         let child = command
             .args(extra_args)
@@ -557,6 +590,55 @@ pub(super) fn write_test_config(codex_home: &Path, repo_root: &Path) -> Result<(
         r#"{"OPENAI_API_KEY":"focus-palette-test","tokens":null,"last_refresh":null}"#,
     )
     .context("write focus-test API-key authentication")
+}
+
+#[test]
+fn overmind_default_never_discovers_or_starts_the_shared_daemon() -> Result<()> {
+    for running in [false, true] {
+        let workspace = tempfile::tempdir()?;
+        let home = tempfile::tempdir()?;
+        write_test_config(home.path(), workspace.path())?;
+        let config = home.path().join("config.toml");
+        let contents = std::fs::read_to_string(&config)?;
+        std::fs::write(
+            config,
+            contents.replace("features.daemon_auto_start = false\n", ""),
+        )?;
+        let socket_path = codex_app_server_client::app_server_control_socket_path(home.path())?;
+        std::fs::create_dir_all(socket_path.as_path().parent().unwrap())?;
+        let listener = if running {
+            let listener = std::os::unix::net::UnixListener::bind(socket_path.as_path())?;
+            listener.set_nonblocking(true)?;
+            Some(listener)
+        } else {
+            None
+        };
+        let mut terminal = PtyCodex::start_overmind_default(workspace.path(), home, &[])?;
+        terminal.wait_for_startup()?;
+        terminal.write_input(b"/status")?;
+        terminal.wait_for_screen("show current session configuration")?;
+        terminal.read_output(Duration::from_millis(/*millis*/ 200))?;
+        terminal.write_input(b"\r")?;
+        terminal.wait_for_screen("Model:")?;
+        ensure!(
+            !terminal
+                ._codex_home
+                .path()
+                .join("app-server-daemon")
+                .exists()
+        );
+        if let Some(listener) = listener {
+            assert_eq!(
+                listener.accept().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+        }
+        ensure!(
+            !String::from_utf8_lossy(&terminal.output)
+                .contains("Running without the shared background server")
+        );
+    }
+    Ok(())
 }
 
 #[test]

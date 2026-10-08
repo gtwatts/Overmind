@@ -9,10 +9,5 @@ pub(crate) mod expansion;
 pub(crate) mod hud;
 pub(crate) mod listing;
 pub(crate) mod pipelines;
+pub(crate) mod server;
 pub(crate) mod skill_refs;
-
-/// Whether this provider lives only in Overmind's core and so must be served by the embedded
-/// app server. The shared background daemon is the stock Codex binary, which lacks it.
-pub(crate) fn requires_embedded_server(model_provider_id: &str) -> bool {
-    model_provider_id == codex_overmind_cursor::CURSOR_PROVIDER_ID
-}
