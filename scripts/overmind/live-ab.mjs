@@ -101,6 +101,8 @@ export function sanitizedEvent(event, secrets) {
       if (Number.isInteger(item.exit_code)) clean.item.exit_code = item.exit_code;
       // Retain proof of the requested test command, without storing shell text.
       clean.item.python_unit_tests = pythonUnitTestCommand(item.command);
+      clean.item.python_unit_tests_passed = clean.item.python_unit_tests
+        && /^Ran 2 tests in [^\r\n]+\r?\n\s*\r?\nOK(?:\r?\n|$)/m.test(item.aggregated_output ?? '');
     }
     if (item.type === 'mcp_tool_call') {
       Object.assign(clean.item, { server: item.server, tool: item.tool, arguments: item.arguments });
@@ -119,11 +121,15 @@ export function sanitizedEvent(event, secrets) {
 
 export function pythonUnitTestCommand(command) {
   if (typeof command !== 'string') return false;
-  // Native exec JSON can show a shell wrapper. Require the standalone command
-  // so a skipped branch or a later success cannot hide a failing test exit.
-  const wrapper = /^(?:\/[^\s]+\/)?(?:bash|sh|zsh)\s+-[lc]{1,2}\s+(['"])(.*)\1$/.exec(command.trim());
-  const inner = wrapper ? wrapper[2] : command.trim();
-  return /^(?:python3|python)(?:\s+-I)?\s+-m\s+unittest(?:\s+-q)?$/.test(inner);
+  // Native exec JSON can show POSIX shell quoting. Also accept a test-first
+  // Python assertion joined by &&: a failing test cannot reach that assertion.
+  const wrapper = /^(?:\/[^\s]+\/)?(?:bash|sh|zsh)\s+-[lc]{1,2}\s+(['"])(.*)\1$/s.exec(command.trim());
+  let inner = wrapper ? wrapper[2] : command.trim();
+  if (wrapper?.[1] === "'") inner = inner.replaceAll("'\"'\"'", "'").replaceAll("'\\''", "'");
+  else if (wrapper?.[1] === '"') inner = inner.replace(/\\([$`"\\\n])/g, (_match, character) => character === '\n' ? '' : character);
+  const tests = '(?:python3|python)(?:\\s+-I)?\\s+-m\\s+unittest(?:\\s+-q)?';
+  const assertion = '(?:python3|python)\\s+-c\\s+(?:"(?:[^"\\\\]|\\\\[\\s\\S])*"|\'[^\']*\')';
+  return new RegExp(`^${tests}(?:\\s+&&\\s+${assertion})?$`).test(inner.trim());
 }
 
 function minimalEnvironment() {
@@ -321,7 +327,7 @@ export async function runJob(options) {
     if (taskId === 'coding') {
       codingVerification = await verifyCodingProject(fixture.projectDir, factsFor(seed, ticket).dispatch_code);
       codingVerification.baseline_failed_before_inference = true;
-      codingVerification.unit_test_command_proved = events.some((event) => event.type === 'item.completed' && event.item?.type === 'command_execution' && event.item.exit_code === 0 && event.item.python_unit_tests === true);
+      codingVerification.unit_test_command_proved = events.some((event) => event.type === 'item.completed' && event.item?.type === 'command_execution' && event.item.exit_code === 0 && event.item.python_unit_tests_passed === true);
       evaluation.success &&= codingVerification.passed && codingVerification.unit_test_command_proved;
     }
     const actualSelectorRequests = selectors.filter((value) => value.request_count > 0);

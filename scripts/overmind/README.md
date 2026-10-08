@@ -74,11 +74,13 @@ helper for an actual bundle trial instead of the checkout's helper build.
 
 For a real coding check, explicitly select `--tasks coding --max-jobs 4`.
 Each arm receives a fresh isolated Python project with a known failing baseline.
-The model must repair the implementation, preserve its tests, run the standalone
-`python3 -m unittest -q` command successfully, and use a fresh MCP dispatch code.
+The model must repair the implementation, preserve its tests, run
+`python3 -m unittest -q` successfully, and use a fresh MCP dispatch code.
 The runner independently verifies the current source using a fresh bytecode
 cache path, checks the unchanged test file, and validates the fresh code. Only a
-recognized test-command boolean and exit status are retained from shell events.
+recognized test-command boolean, two-case success boolean and exit status are
+retained from shell events. A test-first Python assertion joined by `&&` is also
+accepted; skipped branches, masked failures and zero-test success are rejected.
 The default three read-only tasks are unchanged.
 
 The live defaults are OpenAI `gpt-6.1-sol`, Cursor `composer-2.5`, and Decisions

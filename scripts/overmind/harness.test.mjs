@@ -55,6 +55,28 @@ test('coding evidence recognizes a successful unittest command without retaining
   assert.equal(event.item.command, undefined);
 });
 
+test('coding evidence accepts test-first Python assertions and requires two successful test cases', () => {
+  const command = 'python3 -m unittest -q && python3 -c "from dispatch import format_dispatch; c=\'DISP-ABCDEF123456\'; assert format_dispatch(c)==\'dispatch:\'+c"';
+  const wrapped = "/usr/bin/bash -lc '" + command.replaceAll("'", "'\"'\"'") + "'";
+  // Pinned Rust shlex chooses double quotes when the argument has apostrophes.
+  const nativeWrapped = '/usr/bin/bash -lc "' + command.replaceAll('\\', '\\\\').replaceAll('"', '\\"') + '"';
+  assert.equal(pythonUnitTestCommand(command), true);
+  assert.equal(pythonUnitTestCommand(wrapped), true);
+  assert.equal(pythonUnitTestCommand(nativeWrapped), true);
+  assert.equal(pythonUnitTestCommand(command + ' || true'), false);
+  const item = { type: 'command_execution', command: nativeWrapped, exit_code: 0 };
+  for (const [aggregated_output, expected] of [
+    ['Ran 2 tests in 0.000s\n\nOK\n', true],
+    ['Ran 0 tests in 0.000s\n\nOK\n', false],
+    ['Ran 2 tests in 0.000s\n\nFAILED (failures=1)\n', false],
+    ['', false],
+  ]) {
+    const event = sanitizedEvent({ type: 'item.completed', item: { ...item, aggregated_output } }, []);
+    assert.equal(event.item.python_unit_tests_passed, expected);
+    assert.equal(event.item.aggregated_output, undefined);
+  }
+});
+
 test('credential parsing treats shell syntax as data and never needs OAuth copying', () => {
   const text = '# OPENAI_API_KEY=no\nexport OPENAI_API_KEY="first"\nOTHER=ignored\nOPENAI_API_KEY=second # comment\n';
   assert.equal(parseEnv(text, 'OPENAI_API_KEY'), 'second');

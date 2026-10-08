@@ -35,6 +35,8 @@ counters retain their original per-run meaning. Duplicate retries do not add the
 and a new user turn resets its lineage. Cold recovery, missing counters and unsettled retirement
 remain explicitly partial. The observer also requires coverage to match actual model requests
 before comparing complete turn totals. Local recovery regressions cover these cases.
+The [refinement validation report](refinement-2026-10-08.md) records live coding
+checks and the remaining case where a cancelled run supplies no SDK counters.
 
 ## Summary
 

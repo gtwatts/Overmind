@@ -214,7 +214,7 @@ artifact details; toggle it with `pipeline_panel = true|false`. Numeric MCP prog
 the matching active call, with a percentage only when the server reports a valid total.
 See [Decisions selection and TUI progress](docs/overmind/decisions-tui.md) for configuration,
 fallback behavior and validation tools, and the
-[candidate validation report](docs/overmind/validation-2026-10-08.md) for recorded checks.
+[refinement validation report](docs/overmind/refinement-2026-10-08.md) for the latest checks.
 The [local candidate guide](docs/overmind/candidate-installation.md) covers versioned
 development bundles, verification and a later trial or rollback.
 

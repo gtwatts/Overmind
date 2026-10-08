@@ -92,8 +92,9 @@ false` to hide the HUD and panel.
 
 ## Validation tools
 
-See the [2026-10-08 candidate report](validation-2026-10-08.md) for recorded
-checks, build inputs and live comparison limits.
+See the [2026-10-08 refinement report](refinement-2026-10-08.md) for the latest
+checks and candidate identity, and the [initial candidate report](validation-2026-10-08.md)
+for the earlier paired comparison and build inputs.
 The [candidate packaging guide](candidate-installation.md) describes private,
 versioned bundles, verification and later activation or rollback.
 

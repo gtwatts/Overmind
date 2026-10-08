@@ -1,5 +1,8 @@
 # Decisions and TUI candidate validation — 2026-10-08
 
+This records the first candidate. See the [subsequent refinement report](refinement-2026-10-08.md)
+for the latest recovery fixes, real coding checks and versioned package.
+
 This candidate adds shared per-turn Decisions selection, a pipeline stage panel,
 actual MCP numeric progress, and corrected Cursor cache accounting. Validation
 uses isolated homes and harmless MCP fixtures. The installed Codex launcher and
