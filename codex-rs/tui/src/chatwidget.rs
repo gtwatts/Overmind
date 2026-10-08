@@ -289,6 +289,7 @@ mod input_submission;
 mod interrupts;
 mod overmind_commands;
 mod overmind_hud;
+mod overmind_models;
 mod overmind_pipelines;
 mod questions;
 mod startup_submission;
@@ -694,6 +695,7 @@ pub(crate) struct ChatWidget {
     input_queue: InputQueueState,
     /// Overmind: the `/pipeline` run this session drives.
     overmind_pipelines: crate::overmind::pipelines::PipelineSession,
+    overmind_next_session_model: crate::overmind::models::NextSessionModel,
     safety_buffering_prompt: Option<UserMessage>,
     safety_buffering_source: UserMessageSource,
     /// Main chat-surface bindings resolved from `tui.keymap.chat`.

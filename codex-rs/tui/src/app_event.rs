@@ -1255,6 +1255,13 @@ pub(crate) enum AppEvent {
         effort: Option<ReasoningEffort>,
     },
 
+    /// Overmind: start a fresh session on a model served by a different provider (Cursor or
+    /// not), without persisting it as the default.
+    OvermindStartModelSession {
+        model: String,
+        effort: Option<ReasoningEffort>,
+    },
+
     /// Apply a model and effort only to the active session, preserving saved defaults.
     SelectSessionModel {
         model: String,

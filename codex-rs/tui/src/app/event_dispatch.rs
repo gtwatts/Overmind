@@ -2469,6 +2469,20 @@ impl App {
             AppEvent::PersistDaybreakSelection { thread_id, enabled } => {
                 self.persist_daybreak_selection(app_server, thread_id, enabled).await;
             }
+            AppEvent::OvermindStartModelSession { model, effort } => {
+                self.app_event_tx.send(AppEvent::FollowTranscript);
+                self.chat_widget
+                    .set_overmind_next_session_model(model.clone(), effort);
+                self.start_fresh_session(
+                    tui, app_server, /*session_start_source*/ None,
+                    /*initial_user_message*/ None, /*new_thread_name*/ None,
+                )
+                .await;
+                if self.chat_widget.current_model() == model {
+                    let (message, hint) = crate::overmind::models::switched_message(&model);
+                    self.chat_widget.add_info_message(message, Some(hint));
+                }
+            }
             AppEvent::SelectSessionModel { model, effort } => {
                 self.app_event_tx.send(AppEvent::FollowTranscript);
                 self.select_session_model(app_server, model, effort).await;

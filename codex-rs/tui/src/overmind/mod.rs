@@ -8,6 +8,7 @@ pub(crate) mod custom_commands;
 pub(crate) mod expansion;
 pub(crate) mod hud;
 pub(crate) mod listing;
+pub(crate) mod models;
 pub(crate) mod pipelines;
 pub(crate) mod server;
 pub(crate) mod skill_refs;

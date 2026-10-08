@@ -294,6 +294,18 @@ impl ChatWidget {
         effort_for_action: Option<ReasoningEffortConfig>,
         should_prompt_plan_mode_scope: bool,
     ) -> Vec<SelectionAction> {
+        // Overmind: crossing between Cursor and another provider starts a fresh session.
+        if crate::overmind::models::needs_new_session(
+            &self.config.model_provider_id,
+            &model_for_action,
+        ) {
+            return vec![Box::new(move |tx| {
+                tx.send(AppEvent::OvermindStartModelSession {
+                    model: model_for_action.clone(),
+                    effort: effort_for_action.clone(),
+                });
+            })];
+        }
         let warning = effort_for_action
             .as_ref()
             .and_then(|effort| self.ultra_reasoning_concurrency_warning(effort));

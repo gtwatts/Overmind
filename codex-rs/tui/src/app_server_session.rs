@@ -723,6 +723,8 @@ impl AppServerSession {
             .into_iter()
             .map(model_preset_from_api_model)
             .collect::<Vec<_>>();
+        // Overmind: offer Cursor models next to the active provider's models.
+        crate::overmind::models::extend_with_cursor_models(&mut available_models, config);
         crate::service_tier_resolution::constrain_server_service_tiers(
             &mut available_models,
             &requirements,

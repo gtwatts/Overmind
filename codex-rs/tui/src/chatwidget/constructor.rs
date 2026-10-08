@@ -240,6 +240,7 @@ impl ChatWidget {
             interrupted_turn_notice_mode: InterruptedTurnNoticeMode::Default,
             input_queue: InputQueueState::default(),
             overmind_pipelines: Default::default(),
+            overmind_next_session_model: None,
             safety_buffering_prompt: None,
             safety_buffering_source: UserMessageSource::Prompt,
             chat_keymap,

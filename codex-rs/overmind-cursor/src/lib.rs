@@ -63,6 +63,17 @@ pub async fn activate(provider: &mut ModelProviderInfo, codex_home: &Path) -> io
     .await
 }
 
+/// Whether a Cursor API key is available (environment or `$CODEX_HOME/secrets/cursor.env`),
+/// so Cursor models can be offered alongside another provider's models. The key is read only
+/// to check that it is present; it is never returned or logged.
+pub fn is_configured(codex_home: &Path) -> bool {
+    credential::load_cursor_api_key(
+        codex_home,
+        std::env::var(credential::CURSOR_API_KEY_ENV).ok(),
+    )
+    .is_ok()
+}
+
 async fn activate_with(
     provider: &mut ModelProviderInfo,
     codex_home: &Path,

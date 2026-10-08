@@ -51,6 +51,11 @@ impl ChatWidget {
         if model == LUNA_RESERVE_MODEL {
             return None;
         }
+        // Overmind: a provider switch always needs a fresh session, so there is no session-only
+        // variant.
+        if crate::overmind::models::needs_new_session(&self.config.model_provider_id, &model) {
+            return None;
+        }
         let key = key_hint::plain(KeyCode::Char('s'));
         let keymap = self.bottom_pane.list_keymap();
         let mut hints = Vec::new();

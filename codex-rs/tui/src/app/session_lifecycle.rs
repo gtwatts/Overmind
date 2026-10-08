@@ -1000,6 +1000,11 @@ impl App {
                 return;
             }
         };
+        // Overmind: a model picked across providers applies to this new session only.
+        crate::overmind::models::apply_next_session_model(
+            &mut config,
+            self.chat_widget.take_overmind_next_session_model(),
+        );
         apply_managed_new_thread_defaults(
             &mut config,
             app_server.managed_new_thread_defaults(),
