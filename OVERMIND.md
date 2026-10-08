@@ -106,19 +106,50 @@ ability to inspect and re-run a stage. M2 ports the format already used by the
 - `PIPELINE.md`: the human guide, domain notes and resume instructions;
 - optional `prompts/`, `templates/`, `validators/` folders.
 
-Planned shape:
+Shipped on `overmind/m2-pipelines` (stacked on `overmind/m3-tui`):
 
-1. `codex-rs/overmind-pipelines` crate (new crate, so `codex-core` does not grow): parse and
-   validate `pipeline.yaml`, build the stage DAG, detect cycles, topological order.
-2. Run state in `<workdir>/.overmind/runs/<run-id>/state.json`: per-stage status (pending,
-   running, done, failed, skipped), timestamps, artifacts, verifier notes. State is append-only
-   so runs can resume after interruption.
-3. TUI commands: `/pipeline list`, `/pipeline run <name> [inputs]`, `/pipeline status`,
-   `/pipeline inspect <stage>`, `/pipeline rerun <stage>` (re-runs the stage and everything that
-   depends on it). Execution is agent-orchestrated: each stage becomes a bounded user turn that
-   carries the stage instructions, its inputs and upstream artifacts.
-4. Approval gates from `safety.approvalRequiredFor` map to Codex approvals.
-5. Slash commands can already reference pipelines (M1); in M2 they can also start one.
+1. **`codex-rs/overmind-pipelines` crate.** It reads both dialects found on watts:
+   - Codex-native (gordon-workflows plugin): JSON text, explicit `dependsOn`, `actionHint`.
+   - Pi (`~/.pi/agent/pipelines`): block YAML, implicit linear order, `action`, `requires`.
+
+   It validates names, ids and dependencies. Ordering is a stable topological sort that reports
+   cycles. Inputs are checked like `workflow.mjs` does: unknown, missing and mistyped values are
+   errors, and defaults are applied.
+
+   Run state lives in `<workspace>/.overmind/runs/<run-id>/`: `state.json` plus
+   `pipeline.snapshot.yaml`. The directory is git-ignored, with modes 0700/0600. A run is pinned
+   to its definition snapshot and its inputs. A stage is done when its declared output paths exist,
+   and its evidence (sha256, size) is recorded. Changed evidence marks downstream stages stale.
+   An ignored test parses all 39 real definitions on watts.
+2. **`/pipeline` command.** Each stage becomes one queued user turn: a prompt with the stage task,
+   role, skill, hints, inputs, upstream artifacts and expected outputs, with the stage's skill
+   attached. When the turn ends, the outputs decide done or failed and the run auto-advances.
+
+   Auto-advance stops at:
+   - approval gates (`approvalRequired`, `human-review`), which need `/pipeline approve`;
+   - missing outputs;
+   - an interrupted turn;
+   - `/pipeline stop`;
+   - queued user messages;
+   - `[pipelines] auto_advance = false` in `overmind.toml`.
+
+   Subcommands:
+
+   | Subcommand | What it does |
+   | --- | --- |
+   | `list` | List pipelines |
+   | `run <name> [key=value ...] [free text]` | Start a run |
+   | `resume` | Continue a run. A stage whose outputs appeared after an interruption is recorded, not re-run |
+   | `approve` | Approve the current gate and run that stage |
+   | `status [run]` | Show run progress |
+   | `inspect <pipeline\|stage\|run>` | Show details |
+   | `rerun <stage> [run]` | Re-run a stage and everything downstream |
+   | `stop` | Stop auto-advance |
+
+   Search roots: `<project>/.codex/pipelines` (nearest project root first),
+   `$CODEX_HOME/pipelines`, then `$CODEX_HOME/local-marketplaces/*/plugins/*/pipelines`.
+3. **HUD.** The HUD shows a pipeline row: a stage track or dots, done/total and the current stage
+   (◇ awaiting approval, ↻ stale). The row narrows to `● 3/16` on small terminals.
 
 ### 3. Richer TUI (M3)
 
@@ -175,8 +206,8 @@ output = 2.5
 
 Unknown keys under `[tui]` produce a transcript warning and fall back to defaults.
 
-Still planned for M3: the pipeline panel (stage list, run progress bar, per-stage elapsed time and
-current artifact, built on the stage widgets above) and determinate progress for long tool calls
+The pipeline row (M2) uses the stage widgets above; toggle it with `pipeline = true|false` under
+`[tui]`. Still planned for M3: a fuller pipeline panel (per-stage elapsed time, current artifact) and determinate progress for long tool calls
 when the tool reports it.
 
 ### Shipped extra: built-in Cursor provider
@@ -186,11 +217,23 @@ when the tool reports it.
 Cursor models through a bundled loopback Node helper while Codex keeps running its own tools.
 The key comes from `CURSOR_API_KEY` or `$CODEX_HOME/secrets/cursor.env`.
 
-The shared background app-server daemon is the stock Codex binary and has no Cursor provider, so
-when the selected provider is `cursor` the TUI uses the embedded app server instead
-(`startup_orchestration.rs` hook; it shows "Running without the shared background server: a
-Cursor model requires embedded mode." when daemon auto-start is on). The `/model` picker does not
-list Cursor models yet; select them with `-m` or `model = "..."`.
+Cursor models appear in `/model` (after the active provider's models) when a Cursor key is
+configured. A thread cannot change provider, so picking a Cursor model on an OpenAI session (or
+the reverse) starts a fresh session on that model; nothing is written to the shared
+`config.toml`, which stock Codex also reads.
+
+Why a trivial Cursor turn costs ~165K input tokens (plugin MCP schemas, cumulative usage) and what
+to do about it: [docs/overmind/cursor-context-cost.md](docs/overmind/cursor-context-cost.md).
+
+### Always the built-in app server
+
+Overmind never adopts or starts the shared background daemon under `CODEX_HOME`: that daemon is
+the stock Codex binary and lacks Overmind's providers and features. Every provider runs on the
+embedded app server (`codex-rs/tui/src/overmind/server.rs`, hooked into
+`startup_orchestration.rs` and the session subcommands). An explicit `--remote` endpoint is
+still honored. `OVERMIND_SHARED_DAEMON=allow` restores the upstream behaviour; it exists so the
+upstream daemon test suites keep exercising that code. Consequence: the agents overview only shows
+Overmind's own sessions, not the stock daemon's.
 
 ## Roadmap
 
@@ -198,7 +241,7 @@ list Cursor models yet; select them with `-m` or `model = "..."`.
 | --- | --- | --- |
 | M1 | User-defined slash commands, bundled `/video` `/whiteboard` `/photocraft` `/examples`, skill attachment, live reload, `/commands`, tests | done (on `overmind/next`) |
 | Extra | Built-in Cursor provider (`overmind-cursor`) | shipped (on `overmind/next`) |
-| M2 | Native pipelines (port `pipeline.yaml` + `PIPELINE.md`), run state, inspect/re-run | planned (next) |
+| M2 | Native pipelines (port `pipeline.yaml` + `PIPELINE.md`), run state, inspect/re-run | in review on `overmind/m2-pipelines` (stacked on m3) |
 | M3 | TUI visuals: HUD (activity, plan, context, limits, badge), turn summary, shared widgets | first set in review on `overmind/m3-tui`; pipeline panel follows M2 |
 | M4 | Carry over Todd's setup | planned |
 
@@ -277,7 +320,7 @@ Rules that keep conflicts small:
 
 ### Upstream files touched by M3 (HUD) and the Cursor routing hook
 
-- `codex-rs/tui/src/overmind/mod.rs`: `mod hud;`, `requires_embedded_server`
+- `codex-rs/tui/src/overmind/mod.rs`: `mod hud;`
 - `codex-rs/tui/src/chatwidget.rs`: `mod overmind_hud;`, context sync after token updates
 - `codex-rs/tui/src/chatwidget/constructor.rs`: `overmind_hud_init()`
 - `codex-rs/tui/src/chatwidget/turn_runtime.rs`: turn start/finish and plan hooks
@@ -286,8 +329,28 @@ Rules that keep conflicts small:
 - `codex-rs/tui/src/chatwidget/rate_limits.rs`, `status_surfaces.rs`: limit and badge sync
 - `codex-rs/tui/src/bottom_pane/mod.rs`: the `overmind_hud` field, an accessor, one row pushed
   above the composer, and the test module registration
-- `codex-rs/tui/src/startup_orchestration.rs`: embedded app server for the Cursor provider
 - `codex-rs/tui/Cargo.toml` (+ `Cargo.lock`): `codex-overmind-cursor`
+
+### Upstream files touched by M2, the embedded-server default and the `/model` extra
+
+- `codex-rs/Cargo.toml` (+ `Cargo.lock`): the `overmind-pipelines` member;
+  `codex-rs/tui/Cargo.toml`: `codex-overmind-pipelines`
+- `codex-rs/tui/src/slash_command.rs`: the `Pipeline` variant (inline args, available during a
+  task); `chatwidget/slash_dispatch.rs`: two dispatch arms and the queue-drain arm
+- `codex-rs/tui/src/chatwidget.rs`, `chatwidget/constructor.rs`: `overmind_pipelines` and
+  `overmind_next_session_model` fields, `overmind_pipelines_init()`
+- `codex-rs/tui/src/chatwidget/turn_runtime.rs`, `chatwidget/input_restore.rs`: stage hooks on
+  turn start/finish/interrupt
+- `codex-rs/tui/src/startup_orchestration.rs`: daemon exclusion wrapped by
+  `overmind::server::daemon_exclusion`, no warning and a `overmind_embedded` selection reason
+  for it; the earlier Cursor-only special case is gone
+- `codex-rs/tui/src/session_archive_commands.rs`: session subcommands do not reuse the daemon
+- `codex-rs/tui/tests/suite/focus_palette.rs`: PTY helper sets `OVERMIND_SHARED_DAEMON=allow` for
+  upstream tests; one Overmind test launches without it
+- `codex-rs/tui/src/app_server_session.rs`: Cursor presets appended to the model list
+- `codex-rs/tui/src/chatwidget/model_popups.rs`, `session_model_selection.rs`,
+  `app_event.rs`, `app/event_dispatch.rs`, `app/session_lifecycle.rs`: cross-provider picks start a
+  fresh session (`AppEvent::OvermindStartModelSession`)
 
 ## Building and trying Overmind side by side
 
@@ -300,6 +363,7 @@ cargo build -p codex-cli --bin codex
 alias overmind="$HOME/Documents/projects/Overmind/codex-rs/target/debug/codex"
 overmind            # then type / to see /video, /whiteboard, /photocraft, /examples; /commands lists them
 overmind -m grok-4.7   # Cursor model; the HUD shows "◆ Cursor grok-4.7"
+overmind               # then /pipeline list, /pipeline run <name> ...
 ```
 
 The HUD row appears above the composer once there is something to show (a running turn, a plan,
