@@ -97,7 +97,8 @@ Node itself is supplied by the host, not bundled. The executable launcher uses
 `node` on the caller's `PATH`, requires the recorded minimum version, pins
 `OVERMIND_NODE` to that process's Node executable and pins
 `OVERMIND_CURSOR_HELPER_DIR` inside the relocated bundle. It adds `--no-daemon`
-to use the candidate process independently of an installed Codex daemon. Its
+when that option is absent before the `--` positional boundary, keeping the
+candidate process independent of an installed Codex daemon. Its
 paths resolve through launcher symlinks; moving the checkout cannot redirect it
 to a different helper. It preserves the caller's working directory and arguments.
 

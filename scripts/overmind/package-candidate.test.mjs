@@ -134,6 +134,21 @@ test('the same source bytes and metadata produce identical manifests/checksum in
   assert.equal(await readFile(path.join(first.output, 'checksums.sha256'), 'utf8'), await readFile(path.join(second.output, 'checksums.sha256'), 'utf8'));
 });
 
+test('launcher adds no-daemon only when absent before the positional boundary', async (t) => {
+  const fx = await fixture(t);
+  await packageCandidate(fx.options);
+  const launcher = path.join(fx.options.output, 'overmind.mjs');
+  for (const [supplied, expected] of [
+    [['--no-daemon', '--version'], ['--no-daemon', '--version']],
+    [['--version', '--no-daemon'], ['--version', '--no-daemon']],
+    [['exec', '--', '--no-daemon'], ['--no-daemon', 'exec', '--', '--no-daemon']],
+    [['--no-daemon', 'exec', '--', '--no-daemon'], ['--no-daemon', 'exec', '--', '--no-daemon']],
+  ]) {
+    const { stdout } = await execute(process.execPath, [launcher, ...supplied], { env: { PATH: process.env.PATH } });
+    assert.deepEqual(JSON.parse(stdout).args, expected, `supplied ${JSON.stringify(supplied)}`);
+  }
+});
+
 test('requires explicit source snapshot, valid commit and debug profile before publication', async (t) => {
   const fx = await fixture(t);
   for (const [override, message] of [

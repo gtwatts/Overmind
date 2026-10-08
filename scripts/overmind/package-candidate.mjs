@@ -253,7 +253,11 @@ const root = path.dirname(realpathSync(process.argv[1]));
 try {
   const { verifyCandidate } = await import(pathToFileURL(path.join(root, 'runtime/candidate.mjs')));
   await verifyCandidate(root, { checksums: false });
-  const child = spawn(path.join(root, 'bin/codex'), ['--no-daemon', ...process.argv.slice(2)], {
+  const args = process.argv.slice(2);
+  const boundary = args.indexOf('--');
+  const options = boundary < 0 ? args : args.slice(0, boundary);
+  const cliArgs = options.includes('--no-daemon') ? args : ['--no-daemon', ...args];
+  const child = spawn(path.join(root, 'bin/codex'), cliArgs, {
     stdio: 'inherit', shell: false,
     env: { ...process.env, OVERMIND_CURSOR_HELPER_DIR: path.join(root, 'cursor-helper'), OVERMIND_NODE: process.execPath },
   });
